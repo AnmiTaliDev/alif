@@ -1,0 +1,9 @@
+-- Socrates is mortal: a worked example using the identity rule.
+-- We directly assume mortality and conclude it, demonstrating the proof structure.
+
+theorem socrates_mortal:
+  mortal(socrates) |- mortal(socrates)
+proof
+  assume h: mortal(socrates)
+  exact h
+qed

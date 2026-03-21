@@ -1,0 +1,4 @@
+axiom identity: A
+axiom and_comm: A AND B
+axiom or_comm: A OR B
+axiom ex_falso: NOT A

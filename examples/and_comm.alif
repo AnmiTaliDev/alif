@@ -1,0 +1,12 @@
+-- Commutativity of AND proved step by step using primitive inference rules.
+-- Given: A AND B. Goal: B AND A.
+
+theorem and_comm:
+  A AND B |- B AND A
+proof
+  assume h: A AND B
+  have b: B := AndElimRight(h)
+  have a: A := AndElimLeft(h)
+  have result: B AND A := AndIntro(b, a)
+  exact result
+qed
