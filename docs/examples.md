@@ -1,119 +1,10 @@
-# Alif — Worked Examples
+# Examples
 
-This document walks through nine complete examples, from the simplest possible
-one-step proof to multi-theorem files and deliberate errors.  For each example
-the complete `.alif` source is shown, followed by the CLI invocation and expected
-output, and then a detailed explanation of what the checker does at every step.
+The files in `examples/` are checked by the test suite. Run any of them with `alif verify`. The outputs below are from the CLI.
 
----
-
-## Introduction
-
-Every Alif proof file is verified by running:
-
-```sh
-cargo run --example alif -- verify <file.alif>
-```
-
-or, after `cargo build --release`, by:
-
-```sh
-./target/release/examples/alif verify <file.alif>
-```
-
-A successful run prints `✓ QED` to stdout and exits with code 0.  A proof error
-prints a message to stderr and exits with code 1.  A parse error prints to
-stderr and exits with code 2.
-
-The standard library axioms (`identity`, `and_comm`, `or_comm`, `ex_falso`) are
-loaded automatically on every run.
-
----
-
-## Example 1: Identity (`A |- A`)
-
-### Source
+## Reading a proof
 
 ```
--- identity.alif
--- The simplest possible proof: A implies itself.
-theorem identity:
-  A |- A
-proof
-  assume h: A
-  exact h
-qed
-```
-
-### CLI invocation
-
-```sh
-alif verify identity.alif
-```
-
-### Expected output
-
-```
-✓ QED
-```
-
-### Step-by-step walkthrough
-
-**Before the proof begins:**
-
-The checker initialises an empty environment (`{}`).  The theorem's hypotheses
-list contains one formula, `A`, but it is not placed into the environment
-automatically — the proof author must introduce it explicitly.
-
-The conclusion to be proved is `A`.
-
----
-
-**Step 0 — `assume h: A`**
-
-The checker processes `ProofStep::Assume { name: "h", formula: Var("A") }`.
-
-No justification is required for `assume`.  The formula `A` is inserted into the
-environment unconditionally:
-
-```
-env: { "h" → Var("A") }
-last_formula: Some(Var("A"))
-```
-
----
-
-**Step 1 — `exact h`**
-
-The checker processes `ProofStep::Exact { justification: Axiom("h") }`.
-
-The justification is `Axiom("h")`.  The checker resolves `"h"`:
-1. Looks up `"h"` in the environment → found: `Var("A")`.
-
-The derived formula is `Var("A")`.
-
-The checker tests: `Var("A") == Var("A")` (the theorem's conclusion).  They are
-equal — the step passes.
-
-```
-last_formula: Some(Var("A"))
-```
-
----
-
-**Final check:**
-
-`last_formula` is `Some(Var("A"))` which equals the conclusion `Var("A")`.
-The checker returns `Ok(())`.
-
----
-
-## Example 2: AND commutativity (`A AND B |- B AND A`)
-
-### Source
-
-```
--- and_comm.alif
 theorem and_comm:
   A AND B |- B AND A
 proof
@@ -125,478 +16,317 @@ proof
 qed
 ```
 
-### CLI invocation
+This is `examples/and_comm.alif`. The sequent has one hypothesis, `A AND B`, and the conclusion `B AND A`.
 
-```sh
-alif verify and_comm.alif
+1. `assume h: A AND B` introduces the hypothesis under the name `h`. Dependencies of `h`: `{h}`.
+2. `AndElimRight(h)` derives `B`. The step declares `B`, and the formula matches. Dependencies: `{h}`.
+3. `AndElimLeft(h)` derives `A`.
+4. `AndIntro(b, a)` derives `B AND A`.
+5. `exact result` derives the conclusion. The only dependency is `h`, whose formula is the hypothesis, so the proof is complete.
+
 ```
-
-### Expected output
-
-```
+$ alif verify examples/and_comm.alif
 ✓ QED
 ```
 
-### Step-by-step checker state
+## Predicates
 
-| Step | Instruction | Action | Environment after step | `last_formula` |
-|---|---|---|---|---|
-| 0 | `assume h: A AND B` | Insert `h → (A AND B)` | `{ h → (A AND B) }` | `(A AND B)` |
-| 1 | `have b: B := AndElimRight(h)` | Resolve `AndElimRight` on `[h]`: premise `(A AND B)`, extract right → `B`; check `B == B` ✓; insert `b → B` | `{ h → (A AND B), b → B }` | `B` |
-| 2 | `have a: A := AndElimLeft(h)` | Resolve `AndElimLeft` on `[h]`: premise `(A AND B)`, extract left → `A`; check `A == A` ✓; insert `a → A` | `{ h, b, a → … }` | `A` |
-| 3 | `have result: B AND A := AndIntro(b, a)` | Resolve `AndIntro` on `[b, a]`: premises `B`, `A`; construct `(B AND A)`; check `(B AND A) == (B AND A)` ✓; insert `result → (B AND A)` | `{ h, b, a, result → … }` | `(B AND A)` |
-| 4 | `exact result` | Resolve `Axiom("result")` → `(B AND A)` from env; check `(B AND A) == (B AND A)` (conclusion) ✓ | unchanged | `(B AND A)` |
-
-Final check: `last_formula = (B AND A)` equals conclusion `(B AND A)` — `Ok(())`.
-
----
-
-## Example 3: Modus Ponens chain (`A=>B, B=>C, A |- C`)
-
-This example demonstrates chaining two modus ponens applications to implement
-transitivity of implication.
-
-### Source
+`examples/syllogism.alif`:
 
 ```
--- transitivity.alif
--- Transitivity of implication: A=>B, B=>C, A |- C
-theorem transitivity:
-  A => B, B => C, A |- C
+theorem syllogism:
+  forall X: human(X) => mortal(X), human(socrates) |- mortal(socrates)
 proof
-  assume ab: A => B
-  assume bc: B => C
-  assume ha: A
-  have b:  B := ModusPonens(ab, ha)
-  have c:  C := ModusPonens(bc, b)
+  assume all: forall X: human(X) => mortal(X)
+  assume h: human(socrates)
+  have step: human(socrates) => mortal(socrates) := ForallElim(all, socrates)
+  have m: mortal(socrates) := ModusPonens(step, h)
+  exact m
+qed
+```
+
+`ForallElim(all, socrates)` substitutes the term `socrates` for `X` in the body of `all`. Predicates take terms as arguments, so the substitution reaches inside `human(X)` and `mortal(X)`.
+
+`examples/socrates.alif` is the same statement reduced to `mortal(socrates) |- mortal(socrates)`.
+
+## Axioms
+
+An axiom can be passed to a rule or used as a justification. It has no dependencies.
+
+```
+axiom human_socrates: human(socrates)
+axiom all_mortal: forall X: human(X) => mortal(X)
+
+theorem socrates_mortal:
+  |- mortal(socrates)
+proof
+  have step: human(socrates) => mortal(socrates) := ForallElim(all_mortal, socrates)
+  have r: mortal(socrates) := ModusPonens(step, human_socrates)
+  exact r
+qed
+```
+
+## Cases and contradiction
+
+`examples/disjunction.alif`:
+
+```
+theorem or_to_implication:
+  A OR B, NOT A |- B
+proof
+  assume o: A OR B
+  assume na: NOT A
+  assume x: A
+  have f: FALSE := NotElim(x, na)
+  have bx: B := FalseElim(f)
+  assume y: B
+  have result: B := OrElim(o, x, bx, y, y)
+  exact result
+qed
+```
+
+`x` and `y` are assumptions for the two cases. They are not hypotheses of the theorem. `OrElim` discharges them, so `result` depends on `o` and `na` only. In the first case `NotElim` and `FalseElim` derive `B` from the contradiction. In the second case `y` is already `B`, and `y` is passed as the derived fact.
+
+## Discharging assumptions
+
+```
+theorem const_fn:
+  |- A => B => A
+proof
+  assume a: A
+  assume b: B
+  have inner: B => A := ImpliesIntro(b, a)
+  have outer: A => B => A := ImpliesIntro(a, inner)
+  exact outer
+qed
+```
+
+The theorem has no hypotheses. Both assumptions are discharged by `ImpliesIntro`, so `outer` has no dependencies and `exact` succeeds. `A => B => A` is read as `A => (B => A)`.
+
+## Quantifiers
+
+`examples/quantifiers.alif` contains three proofs.
+
+```
+theorem forall_left:
+  forall X: P(X) AND Q(X) |- forall X: P(X)
+proof
+  assume all: forall X: P(X) AND Q(X)
+  have both: P(x) AND Q(x) := ForallElim(all, x)
+  have p: P(x) := AndElimLeft(both)
+  have result: forall X: P(X) := ForallIntro(p, x)
+  exact result
+qed
+```
+
+`x` is a name that appears in no hypothesis, so `ForallIntro(p, x)` is allowed. The result `forall x: P(x)` equals the declared `forall X: P(X)` because bound names do not matter.
+
+```
+theorem exists_left:
+  exists X: P(X) AND Q(X) |- exists X: P(X)
+proof
+  assume ex: exists X: P(X) AND Q(X)
+  assume w: P(c) AND Q(c)
+  have p: P(c) := AndElimLeft(w)
+  have goal: exists X: P(X) := ExistsIntro(p, c)
+  have result: exists X: P(X) := ExistsElim(ex, w, goal, c)
+  exact result
+qed
+```
+
+`w` is the instance of the existential formula for the fresh name `c`. `ExistsElim` discharges `w`, and the result depends on `ex` only.
+
+## Equality
+
+`examples/equality.alif` proves reflexivity, symmetry, transitivity and substitution:
+
+```
+theorem eq_substitution:
+  a = b, P(a) |- P(b)
+proof
+  assume e: a = b
+  assume p: P(a)
+  have r: P(b) := EqSubst(e, p)
+  exact r
+qed
+```
+
+## Theorems as lemmas
+
+`examples/lemmas.alif`:
+
+```
+theorem swap_twice:
+  P AND Q |- P AND Q
+proof
+  assume h: P AND Q
+  have swapped: Q AND P := and_comm(h)
+  have back: P AND Q := and_comm(swapped)
+  exact back
+qed
+```
+
+`and_comm` comes from the standard library. The first call replaces `A` by `P` and `B` by `Q`. The second call replaces `A` by `Q` and `B` by `P`.
+
+## Imports
+
+`examples/lib/common.alif`:
+
+```
+theorem weaken:
+  A, B |- A
+proof
+  assume a: A
+  assume b: B
+  exact a
+qed
+```
+
+`examples/import_main.alif`:
+
+```
+import "lib/common.alif"
+
+theorem first_of_two:
+  X AND Y |- X
+proof
+  assume h: X AND Y
+  have x: X := AndElimLeft(h)
+  have y: Y := AndElimRight(h)
+  have r: X := weaken(x, y)
+  exact r
+qed
+```
+
+The path is relative to the directory of `import_main.alif`.
+
+## Common mistakes
+
+Each case below is a complete file named `bad.alif`.
+
+### An assumption that is not a hypothesis
+
+```
+theorem t: A |- B
+proof
+  assume h: B
+  exact h
+qed
+```
+
+```
+bad.alif:4:3: proof error in theorem `t`, step 2: the result depends on assumption `h: B`, which is neither discharged nor a hypothesis of the theorem
+```
+
+The hypothesis is `A`. Introducing `B` as an assumption does not prove `B`.
+
+### An assumption that is never discharged
+
+```
+theorem t: |- A => B
+proof
+  assume a: A
+  assume b: B
+  have r: A => B := ImpliesIntro(a, b)
+  exact r
+qed
+```
+
+```
+bad.alif:6:3: proof error in theorem `t`, step 4: the result depends on assumption `b: B`, which is neither discharged nor a hypothesis of the theorem
+```
+
+`ImpliesIntro` discharges `a` only. The result still depends on `b`.
+
+### Generalising over a fixed name
+
+```
+theorem t: P(x) |- forall x: P(x)
+proof
+  assume h: P(x)
+  have g: forall x: P(x) := ForallIntro(h, x)
+  exact g
+qed
+```
+
+```
+bad.alif:4:3: proof error in theorem `t`, step 2: rule `ForallIntro` failed: variable `x` occurs free in an undischarged assumption or an axiom
+```
+
+The hypothesis talks about one particular `x`, so the statement cannot be generalised.
+
+### A theorem applied to the wrong formula
+
+```
+theorem t: X AND Y |- X AND Y
+proof
+  assume h: X AND Y
+  have r: X AND Y := and_comm(h)
+  exact r
+qed
+```
+
+```
+bad.alif:4:3: proof error in theorem `t`, step 2: the arguments and the declared formula are not an instance of theorem `and_comm`: (A AND B) |- (B AND A)
+```
+
+With `h: X AND Y` the theorem yields `Y AND X`.
+
+### Variable capture
+
+```
+theorem t: forall X: exists Y: R(X, Y) |- exists Y: R(Y, Y)
+proof
+  assume all: forall X: exists Y: R(X, Y)
+  have r: exists Y: R(Y, Y) := ForallElim(all, Y)
+  exact r
+qed
+```
+
+```
+bad.alif:4:3: proof error in theorem `t`, step 2: derived formula `exists Y_1: R(Y, Y_1)` does not match declared formula `exists Y: R(Y, Y)`
+```
+
+Substituting `Y` into the body renames the bound `Y`. The statement of the theorem is not derivable, and the checker does not derive it.
+
+### A derivation that does not produce the declared formula
+
+```
+theorem t: A, B |- A
+proof
+  assume a: A
+  assume b: B
+  have c: A := AndIntro(a, b)
   exact c
 qed
 ```
 
-### CLI invocation
-
-```sh
-alif verify transitivity.alif
+```
+bad.alif:5:3: proof error in theorem `t`, step 3: derived formula `(A AND B)` does not match declared formula `A`
 ```
 
-### Expected output
+### A proof without `exact`
 
 ```
-✓ QED
-```
-
-### Explanation
-
-After three `assume` steps, the environment contains:
-```
-ab → (A => B)
-bc → (B => C)
-ha → A
-```
-
-**`have b: B := ModusPonens(ab, ha)`**
-
-The rule `ModusPonens` tries both orderings of its two premises.  With `ab =
-(A => B)` and `ha = A`:
-- `premises[0]` is `(A => B)` — an `Implies`.
-- The antecedent of `(A => B)` is `A`.
-- `A == A` (the value of `premises[1]`) — match.
-- The consequent `B` is returned.
-
-The checker verifies `B == B` and inserts `b → B`.
-
-**`have c: C := ModusPonens(bc, b)`**
-
-With `bc = (B => C)` and `b = B`:
-- `premises[0]` is `(B => C)` — an `Implies`.
-- The antecedent `B` matches `premises[1]` which is `B`.
-- The consequent `C` is returned.
-
-The checker verifies `C == C` and inserts `c → C`.
-
-**`exact c`** — resolves to `C`, which equals the conclusion.
-
----
-
-## Example 4: Nested AND elimination (`(A AND B) AND C |- C AND A`)
-
-This example shows how to extract components from a deeply nested conjunction.
-
-### Source
-
-```
--- nested_and.alif
--- Extract the innermost and outermost components of a nested conjunction.
-theorem nested_and:
-  (A AND B) AND C |- C AND A
+theorem t: A |- A
 proof
-  assume h: (A AND B) AND C
-  have ab: A AND B := AndElimLeft(h)
-  have c:  C       := AndElimRight(h)
-  have a:  A       := AndElimLeft(ab)
-  have r:  C AND A := AndIntro(c, a)
-  exact r
+  assume h: A
 qed
 ```
 
-### CLI invocation
-
-```sh
-alif verify nested_and.alif
+```
+bad.alif:3:3: proof error in theorem `t`, step 1: proof must end with `exact`
 ```
 
-### Expected output
+### A missing `qed`
 
 ```
-✓ QED
-```
-
-### Explanation
-
-The hypothesis `h` has type `(A AND B) AND C`.
-
-- `AndElimLeft(h)` — the first component of the outer conjunction is `A AND B`.
-- `AndElimRight(h)` — the second component is `C`.
-- `AndElimLeft(ab)` — the first component of the inner conjunction `A AND B` is `A`.
-- `AndIntro(c, a)` — combine `C` and `A` to form `C AND A`.
-
-The key insight is that `AndElimLeft` and `AndElimRight` work on whatever
-conjunction is in scope.  By applying `AndElimLeft` twice — once on `h` to get
-`A AND B`, and once on `ab` to get `A` — we can reach any component of an
-arbitrarily nested conjunction.
-
----
-
-## Example 5: OR introduction (`A, B |- A OR B`)
-
-### Source
-
-```
--- or_intro.alif
--- From A and B, derive A OR B.
-theorem or_intro:
-  A, B |- A OR B
-proof
-  assume ha: A
-  assume hb: B
-  have r: A OR B := OrIntroLeft(ha, hb)
-  exact r
-qed
-```
-
-### CLI invocation
-
-```sh
-alif verify or_intro.alif
-```
-
-### Expected output
-
-```
-✓ QED
-```
-
-### Explanation
-
-`OrIntroLeft` takes two premises: the formula to inject on the left (`ha = A`)
-and the formula to place on the right (`hb = B`).  It constructs `A OR B`.
-
-Note that `OrIntroRight` can also be used here, but with swapped argument order:
-`OrIntroRight(hb, ha)` would produce `A OR B` (with `A` derived from `hb`
-becoming the right side and `ha` becoming the left side — see the rule table in
-the API reference for the exact semantics).
-
----
-
-## Example 6: Forall elimination (`forall X: X, t |- t`)
-
-This example demonstrates substitution via `ForallElim`.
-
-### Source
-
-```
--- forall_elim.alif
--- Given a universal statement and a witness, derive the instantiated formula.
-theorem forall_elim:
-  forall X: X |- mortal(socrates)
-proof
-  assume fa: forall X: X
-  assume t:  mortal(socrates)
-  have r: mortal(socrates) := ForallElim(fa, t)
-  exact r
-qed
-```
-
-### CLI invocation
-
-```sh
-alif verify forall_elim.alif
-```
-
-### Expected output
-
-```
-✓ QED
-```
-
-### Explanation
-
-**`assume fa: forall X: X`**
-
-Introduces the universal formula `forall X: X` under the name `fa`.
-
-**`assume t: mortal(socrates)`**
-
-Introduces the term `mortal(socrates)` as a `Var("mortal(socrates)")` under the
-name `t`.  This is the witness that will be substituted for `X`.
-
-**`have r: mortal(socrates) := ForallElim(fa, t)`**
-
-`ForallElim` is applied with two premises:
-1. `fa` = `Forall("X", Var("X"))` — a universal formula.
-2. `t` = `Var("mortal(socrates)")` — the term to substitute.
-
-The rule extracts the bound variable `"X"` and the body `Var("X")`, then calls
-`substitute(body, "X", &Var("mortal(socrates)"))`.
-
-`substitute` sees `Var("X")` with `var = "X"`: since the name matches, it
-returns `Var("mortal(socrates)")`.
-
-The derived formula is `Var("mortal(socrates)")`.  The checker verifies this
-equals the declared formula `Var("mortal(socrates)")` — they are identical.
-
----
-
-## Example 7: Multi-theorem file (theorem 2 depends on axioms from theorem 1's scope)
-
-This example shows how a file can contain multiple theorems and how user-declared
-axioms become available to later theorems.
-
-### Source
-
-```
--- multi.alif
--- Declare a user axiom and then use it in a theorem.
-
-axiom all_humans_mortal: human(X) => mortal(X)
-
--- This theorem uses the user axiom declared above.
-theorem socrates_mortal:
-  human(socrates) |- mortal(socrates)
-proof
-  assume h: human(socrates)
-  have impl: human(X) => mortal(X) := all_humans_mortal
-  have r:    mortal(socrates)      := ModusPonens(impl, h)
-  exact r
-qed
-
--- A second theorem uses only built-in rules.
-theorem and_comm_again:
-  A AND B |- B AND A
-proof
-  assume h: A AND B
-  have b: B       := AndElimRight(h)
-  have a: A       := AndElimLeft(h)
-  have r: B AND A := AndIntro(b, a)
-  exact r
-qed
-```
-
-### CLI invocation
-
-```sh
-alif verify multi.alif
-```
-
-### Expected output
-
-```
-✓ QED
-```
-
-### Explanation
-
-`verify_source` processes items in declaration order:
-
-1. `Item::Axiom { name: "all_humans_mortal", formula: Implies(Var("human(X)"), Var("mortal(X)")) }` — inserted into the axiom map.
-2. `Item::Theorem(socrates_mortal)` — checked with the axiom map that now
-   contains `all_humans_mortal`.
-3. `Item::Theorem(and_comm_again)` — checked independently; does not depend on
-   the first theorem.
-
-In `socrates_mortal`, the step `have impl: human(X) => mortal(X) := all_humans_mortal`
-uses a `Justification::Axiom("all_humans_mortal")`.  The checker looks up
-`"all_humans_mortal"` in the environment (not found), then in the axiom map
-(found: `(human(X) => mortal(X))`).  The derived formula equals the declared
-formula, so the step passes.
-
-The `ModusPonens(impl, h)` step then applies with:
-- `impl = (human(X) => mortal(X))`
-- `h = human(socrates)`
-
-`ModusPonens` checks whether the antecedent of `impl` equals `h`:
-`human(X) == human(socrates)`?  This is a string comparison on `Var` values:
-`"human(X)" != "human(socrates)"`.  They are **not** equal.
-
-This means `ModusPonens` would fail in this exact form.  To make it work, the
-axiom must be stated with the concrete value, or the proof must use `ForallElim`
-to instantiate a universally quantified form.  The corrected multi-theorem file
-that actually passes:
-
-```
--- multi_correct.alif
-
-axiom socrates_is_human: human(socrates)
-axiom humans_are_mortal: human(socrates) => mortal(socrates)
-
-theorem socrates_mortal:
-  human(socrates) |- mortal(socrates)
-proof
-  assume h: human(socrates)
-  have impl: human(socrates) => mortal(socrates) := humans_are_mortal
-  have r:    mortal(socrates)                    := ModusPonens(impl, h)
-  exact r
-qed
-
-theorem and_comm_again:
-  A AND B |- B AND A
-proof
-  assume h: A AND B
-  have b: B       := AndElimRight(h)
-  have a: A       := AndElimLeft(h)
-  have r: B AND A := AndIntro(b, a)
-  exact r
-qed
-```
-
-This illustrates that Alif uses syntactic equality: `human(X)` and
-`human(socrates)` are distinct atoms.
-
----
-
-## Example 8: A deliberately wrong proof
-
-### Source
-
-```
--- wrong.alif
--- Attempt to prove B from A (impossible).
-theorem wrong:
-  A |- B
+theorem t: A |- A
 proof
   assume h: A
   exact h
-qed
 ```
 
-### CLI invocation
-
-```sh
-alif verify wrong.alif
 ```
-
-### Expected output (stderr, exit code 1)
-
+bad.alif:5:1: parse error: expected `qed`, found end of input
 ```
-proof error: proof error at step 1: `exact` produced `A` but the theorem's conclusion is `B`
-```
-
-### Explanation
-
-The proof has two steps (zero-indexed):
-
-- Step 0: `assume h: A` — succeeds; inserts `h → A`.
-- Step 1: `exact h` — resolves `h` to `A`; checks `A == B` (the conclusion).
-  `Var("A") != Var("B")` — the check fails.
-
-The checker constructs:
-
-```rust
-CheckError {
-    step_index: 1,
-    step: Box::new(ProofStep::Exact { justification: Justification::Axiom("h") }),
-    message: "`exact` produced `A` but the theorem's conclusion is `B`",
-}
-```
-
-This is wrapped in `AlifError::Check` and the CLI prints:
-
-```
-proof error: proof error at step 1: `exact` produced `A` but the theorem's conclusion is `B`
-```
-
-The CLI exits with code 1.
-
----
-
-## Example 9: Parser error
-
-### Source
-
-```
--- bad_syntax.alif
--- Missing `proof` keyword.
-theorem oops:
-  A |- A
-  assume h: A
-  exact h
-qed
-```
-
-### CLI invocation
-
-```sh
-alif verify bad_syntax.alif
-```
-
-### Expected output (stderr, exit code 2)
-
-```
-parse error: parse error: expected `proof`, got Assume ("assume")
-```
-
-### Explanation
-
-After parsing the sequent `A |- A`, the parser's `parse_theorem` method calls:
-
-```rust
-self.expect(&Token::Proof, "`proof`")?;
-```
-
-The current token is `Assume` (the word `assume`), not `Proof`.  The `expect`
-method returns:
-
-```rust
-Err(ParseError {
-    message: "expected `proof`, got Assume (\"assume\")",
-    offset: None,
-})
-```
-
-This `ParseError` propagates through `parse_source` and `verify_source`, and is
-wrapped as `AlifError::Parse(e)`.  The CLI matches this variant and prints:
-
-```
-parse error: parse error: expected `proof`, got Assume ("assume")
-```
-
-Note: the `Display` of `AlifError::Parse(e)` delegates to `ParseError`'s
-`Display`, which — since `offset` is `None` — produces
-`"parse error: {message}"`.  The CLI then prepends its own label, giving the
-double `"parse error: parse error: …"` appearance.  The CLI exits with code 2.
-
----
-
-## Summary table
-
-| Example | Sequent | Key rules used | Outcome |
-|---|---|---|---|
-| 1: Identity | `A |- A` | none (assume + exact) | `✓ QED` |
-| 2: AND commutativity | `A AND B |- B AND A` | `AndElimRight`, `AndElimLeft`, `AndIntro` | `✓ QED` |
-| 3: Modus Ponens chain | `A=>B, B=>C, A |- C` | `ModusPonens` ×2 | `✓ QED` |
-| 4: Nested AND | `(A AND B) AND C |- C AND A` | `AndElimLeft` ×2, `AndElimRight`, `AndIntro` | `✓ QED` |
-| 5: OR introduction | `A, B |- A OR B` | `OrIntroLeft` | `✓ QED` |
-| 6: Forall elimination | `forall X: X |- mortal(socrates)` | `ForallElim` | `✓ QED` |
-| 7: Multi-theorem file | multiple | `ModusPonens`, `AndIntro`, etc. | `✓ QED` |
-| 8: Wrong proof | `A |- B` | — | proof error at step 1 |
-| 9: Parse error | malformed | — | parse error |
