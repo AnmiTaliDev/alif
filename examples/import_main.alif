@@ -1,0 +1,11 @@
+import "lib/common.alif"
+
+theorem first_of_two:
+  X AND Y |- X
+proof
+  assume h: X AND Y
+  have x: X := AndElimLeft(h)
+  have y: Y := AndElimRight(h)
+  have r: X := weaken(x, y)
+  exact r
+qed

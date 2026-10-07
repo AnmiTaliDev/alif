@@ -1,0 +1,29 @@
+theorem exists_from_forall:
+  forall X: P(X) |- exists Y: P(Y)
+proof
+  assume all: forall X: P(X)
+  have pa: P(a) := ForallElim(all, a)
+  have ex: exists Y: P(Y) := ExistsIntro(pa, a)
+  exact ex
+qed
+
+theorem forall_left:
+  forall X: P(X) AND Q(X) |- forall X: P(X)
+proof
+  assume all: forall X: P(X) AND Q(X)
+  have both: P(x) AND Q(x) := ForallElim(all, x)
+  have p: P(x) := AndElimLeft(both)
+  have result: forall X: P(X) := ForallIntro(p, x)
+  exact result
+qed
+
+theorem exists_left:
+  exists X: P(X) AND Q(X) |- exists X: P(X)
+proof
+  assume ex: exists X: P(X) AND Q(X)
+  assume w: P(c) AND Q(c)
+  have p: P(c) := AndElimLeft(w)
+  have goal: exists X: P(X) := ExistsIntro(p, c)
+  have result: exists X: P(X) := ExistsElim(ex, w, goal, c)
+  exact result
+qed

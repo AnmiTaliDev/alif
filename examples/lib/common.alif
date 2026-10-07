@@ -1,0 +1,7 @@
+theorem weaken:
+  A, B |- A
+proof
+  assume a: A
+  assume b: B
+  exact a
+qed

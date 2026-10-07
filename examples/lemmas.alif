@@ -1,0 +1,18 @@
+theorem swap_twice:
+  P AND Q |- P AND Q
+proof
+  assume h: P AND Q
+  have swapped: Q AND P := and_comm(h)
+  have back: P AND Q := and_comm(swapped)
+  exact back
+qed
+
+theorem excluded_contradiction:
+  A, NOT A |- B
+proof
+  assume a: A
+  assume n: NOT A
+  have f: FALSE := NotElim(a, n)
+  have b: B := ex_falso(f)
+  exact b
+qed

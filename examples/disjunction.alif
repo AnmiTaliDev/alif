@@ -1,0 +1,12 @@
+theorem or_to_implication:
+  A OR B, NOT A |- B
+proof
+  assume o: A OR B
+  assume na: NOT A
+  assume x: A
+  have f: FALSE := NotElim(x, na)
+  have bx: B := FalseElim(f)
+  assume y: B
+  have result: B := OrElim(o, x, bx, y, y)
+  exact result
+qed

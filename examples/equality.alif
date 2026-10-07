@@ -1,0 +1,31 @@
+theorem eq_reflexive:
+  |- a = a
+proof
+  exact EqRefl()
+qed
+
+theorem eq_symmetric:
+  a = b |- b = a
+proof
+  assume e: a = b
+  have r: b = a := EqSym(e)
+  exact r
+qed
+
+theorem eq_transitive:
+  a = b, b = c |- a = c
+proof
+  assume ab: a = b
+  assume bc: b = c
+  have r: a = c := EqTrans(ab, bc)
+  exact r
+qed
+
+theorem eq_substitution:
+  a = b, P(a) |- P(b)
+proof
+  assume e: a = b
+  assume p: P(a)
+  have r: P(b) := EqSubst(e, p)
+  exact r
+qed

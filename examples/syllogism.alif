@@ -1,0 +1,9 @@
+theorem syllogism:
+  forall X: human(X) => mortal(X), human(socrates) |- mortal(socrates)
+proof
+  assume all: forall X: human(X) => mortal(X)
+  assume h: human(socrates)
+  have step: human(socrates) => mortal(socrates) := ForallElim(all, socrates)
+  have m: mortal(socrates) := ModusPonens(step, h)
+  exact m
+qed
