@@ -1,0 +1,10 @@
+theorem t: A OR B, C, D |- C
+proof
+  assume o: A OR B
+  assume c: C
+  assume d: D
+  assume x: A
+  assume y: B
+  have r: C := OrElim(o, x, c, y, d)
+  exact r
+qed

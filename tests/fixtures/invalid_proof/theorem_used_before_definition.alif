@@ -1,0 +1,12 @@
+theorem first: X |- X
+proof
+  assume x: X
+  have r: X := later(x)
+  exact r
+qed
+
+theorem later: X |- X
+proof
+  assume x: X
+  exact x
+qed

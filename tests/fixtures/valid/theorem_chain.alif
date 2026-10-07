@@ -1,0 +1,16 @@
+theorem first:
+  A AND B |- A
+proof
+  assume h: A AND B
+  have a: A := AndElimLeft(h)
+  exact a
+qed
+
+theorem second:
+  (X AND Y) AND Z |- X
+proof
+  assume h: (X AND Y) AND Z
+  have xy: X AND Y := AndElimLeft(h)
+  have x: X := first(xy)
+  exact x
+qed

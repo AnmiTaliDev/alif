@@ -1,0 +1,9 @@
+theorem const_fn:
+  |- A => B => A
+proof
+  assume a: A
+  assume b: B
+  have inner: B => A := ImpliesIntro(b, a)
+  have outer: A => B => A := ImpliesIntro(a, inner)
+  exact outer
+qed

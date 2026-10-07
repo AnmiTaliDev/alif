@@ -1,0 +1,6 @@
+theorem t: X AND Y |- X AND Y
+proof
+  assume h: X AND Y
+  have r: X AND Y := and_comm(h)
+  exact r
+qed

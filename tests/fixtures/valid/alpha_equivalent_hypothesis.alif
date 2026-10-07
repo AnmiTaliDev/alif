@@ -1,0 +1,6 @@
+theorem renamed:
+  forall X: P(X) |- forall Y: P(Y)
+proof
+  assume h: forall Y: P(Y)
+  exact h
+qed

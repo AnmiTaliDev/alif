@@ -1,0 +1,7 @@
+theorem t: A, B |- A
+proof
+  assume a: A
+  assume b: B
+  have c: A := AndIntro(a, b)
+  exact c
+qed

@@ -1,0 +1,10 @@
+axiom human_socrates: human(socrates)
+axiom all_mortal: forall X: human(X) => mortal(X)
+
+theorem socrates_mortal:
+  |- mortal(socrates)
+proof
+  have step: human(socrates) => mortal(socrates) := ForallElim(all_mortal, socrates)
+  have r: mortal(socrates) := ModusPonens(step, human_socrates)
+  exact r
+qed

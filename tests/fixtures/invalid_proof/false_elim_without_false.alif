@@ -1,0 +1,6 @@
+theorem t: A |- B
+proof
+  assume a: A
+  have b: B := FalseElim(a)
+  exact b
+qed

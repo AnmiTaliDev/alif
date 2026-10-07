@@ -1,0 +1,6 @@
+theorem t: A |- A => A
+proof
+  assume a: A
+  have r: A => A := identity(a)
+  exact r
+qed

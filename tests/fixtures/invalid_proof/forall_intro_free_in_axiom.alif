@@ -1,0 +1,7 @@
+axiom ax: P(c)
+
+theorem t: |- forall c: P(c)
+proof
+  have g: forall c: P(c) := ForallIntro(ax, c)
+  exact g
+qed

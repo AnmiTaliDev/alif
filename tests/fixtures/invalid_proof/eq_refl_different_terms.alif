@@ -1,0 +1,4 @@
+theorem t: |- a = b
+proof
+  exact EqRefl()
+qed

@@ -1,0 +1,4 @@
+theorem t: |- A
+proof
+  exact nothing
+qed

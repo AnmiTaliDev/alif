@@ -1,0 +1,8 @@
+theorem t: A, B |- B => A
+proof
+  assume a: A
+  assume b: B
+  have copy: B := b
+  have r: B => A := ImpliesIntro(copy, a)
+  exact r
+qed

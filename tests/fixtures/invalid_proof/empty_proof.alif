@@ -1,0 +1,3 @@
+theorem t: A |- A
+proof
+qed

@@ -1,0 +1,7 @@
+theorem capture_ok:
+  forall X: exists Y: R(X, Y) |- exists Z: R(Y, Z)
+proof
+  assume all: forall X: exists Y: R(X, Y)
+  have r: exists Z: R(Y, Z) := ForallElim(all, Y)
+  exact r
+qed

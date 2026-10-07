@@ -1,0 +1,7 @@
+axiom identity: P(a)
+
+theorem uses_shadow:
+  |- P(a)
+proof
+  exact identity
+qed

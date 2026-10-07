@@ -1,0 +1,4 @@
+theorem t: A |- A
+proof
+  assume h: A
+  exact h

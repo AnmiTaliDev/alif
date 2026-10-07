@@ -1,0 +1,6 @@
+theorem t: A |- A
+proof
+  assume h: A
+  have h: A := h
+  exact h
+qed

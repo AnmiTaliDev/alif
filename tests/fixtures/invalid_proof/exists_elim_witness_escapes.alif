@@ -1,0 +1,7 @@
+theorem t: exists X: P(X) |- P(c)
+proof
+  assume ex: exists X: P(X)
+  assume w: P(c)
+  have r: P(c) := ExistsElim(ex, w, w, c)
+  exact r
+qed

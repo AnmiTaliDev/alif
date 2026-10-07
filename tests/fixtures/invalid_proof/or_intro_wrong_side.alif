@@ -1,0 +1,6 @@
+theorem t: A |- B OR A
+proof
+  assume a: A
+  have r: B OR A := OrIntroLeft(a)
+  exact r
+qed

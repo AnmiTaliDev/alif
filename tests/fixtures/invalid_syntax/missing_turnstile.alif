@@ -1,0 +1,5 @@
+theorem t: A, B
+proof
+  assume a: A
+  exact a
+qed

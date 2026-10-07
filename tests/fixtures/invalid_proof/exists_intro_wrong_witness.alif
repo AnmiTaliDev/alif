@@ -1,0 +1,6 @@
+theorem t: P(a) |- exists X: P(X)
+proof
+  assume p: P(a)
+  have r: exists X: P(X) := ExistsIntro(p, b)
+  exact r
+qed

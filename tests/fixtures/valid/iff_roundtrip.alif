@@ -1,0 +1,7 @@
+theorem iff_swap:
+  A <=> B |- B <=> A
+proof
+  assume h: A <=> B
+  have r: B <=> A := iff_comm(h)
+  exact r
+qed

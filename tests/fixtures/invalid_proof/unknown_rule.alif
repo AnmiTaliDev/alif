@@ -1,0 +1,5 @@
+theorem t: A |- A
+proof
+  assume h: A
+  exact Nonexistent(h)
+qed

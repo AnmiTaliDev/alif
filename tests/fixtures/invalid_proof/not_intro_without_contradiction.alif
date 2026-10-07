@@ -1,0 +1,6 @@
+theorem t: A |- NOT A
+proof
+  assume h: A
+  have n: NOT A := NotIntro(h)
+  exact n
+qed

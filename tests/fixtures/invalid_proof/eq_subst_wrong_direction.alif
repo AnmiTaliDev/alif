@@ -1,0 +1,7 @@
+theorem t: a = b, P(b) |- P(a)
+proof
+  assume e: a = b
+  assume p: P(b)
+  have r: P(a) := EqSubst(e, p)
+  exact r
+qed

@@ -1,0 +1,11 @@
+theorem t: A |- A
+proof
+  assume h: A
+  exact h
+qed
+
+theorem t: B |- B
+proof
+  assume h: B
+  exact h
+qed

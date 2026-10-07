@@ -1,0 +1,6 @@
+theorem t: P(x) |- forall x: P(x)
+proof
+  assume h: P(x)
+  have g: forall x: P(x) := ForallIntro(h, x)
+  exact g
+qed

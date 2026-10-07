@@ -1,0 +1,8 @@
+theorem dni:
+  |- A => NOT NOT A
+proof
+  assume a: A
+  have nn: NOT NOT A := not_not_intro(a)
+  have r: A => NOT NOT A := ImpliesIntro(a, nn)
+  exact r
+qed

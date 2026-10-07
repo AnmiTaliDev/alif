@@ -1,0 +1,7 @@
+theorem t: A, B |- NOT A
+proof
+  assume a: A
+  assume b: B
+  have n: NOT A := NotIntro(a, b)
+  exact n
+qed

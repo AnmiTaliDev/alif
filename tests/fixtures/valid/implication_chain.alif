@@ -1,0 +1,10 @@
+theorem chain:
+  A => B => C, A, B |- C
+proof
+  assume i: A => B => C
+  assume a: A
+  assume b: B
+  have bc: B => C := ModusPonens(i, a)
+  have c: C := ModusPonens(bc, b)
+  exact c
+qed

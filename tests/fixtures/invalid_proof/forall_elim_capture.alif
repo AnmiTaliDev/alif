@@ -1,0 +1,6 @@
+theorem t: forall X: exists Y: R(X, Y) |- exists Y: R(Y, Y)
+proof
+  assume all: forall X: exists Y: R(X, Y)
+  have r: exists Y: R(Y, Y) := ForallElim(all, Y)
+  exact r
+qed
