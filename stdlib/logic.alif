@@ -1,4 +1,90 @@
-axiom identity: A
-axiom and_comm: A AND B
-axiom or_comm: A OR B
-axiom ex_falso: NOT A
+theorem identity: |- A => A
+proof
+  assume a: A
+  have r: A => A := ImpliesIntro(a, a)
+  exact r
+qed
+
+theorem and_comm: A AND B |- B AND A
+proof
+  assume h: A AND B
+  have a: A := AndElimLeft(h)
+  have b: B := AndElimRight(h)
+  have r: B AND A := AndIntro(b, a)
+  exact r
+qed
+
+theorem and_assoc: (A AND B) AND C |- A AND (B AND C)
+proof
+  assume h: (A AND B) AND C
+  have ab: A AND B := AndElimLeft(h)
+  have c: C := AndElimRight(h)
+  have a: A := AndElimLeft(ab)
+  have b: B := AndElimRight(ab)
+  have bc: B AND C := AndIntro(b, c)
+  have r: A AND (B AND C) := AndIntro(a, bc)
+  exact r
+qed
+
+theorem or_comm: A OR B |- B OR A
+proof
+  assume h: A OR B
+  assume x: A
+  have l: B OR A := OrIntroRight(x)
+  assume y: B
+  have r: B OR A := OrIntroLeft(y)
+  have result: B OR A := OrElim(h, x, l, y, r)
+  exact result
+qed
+
+theorem ex_falso: FALSE |- A
+proof
+  assume f: FALSE
+  have a: A := FalseElim(f)
+  exact a
+qed
+
+theorem not_not_intro: A |- NOT NOT A
+proof
+  assume a: A
+  assume n: NOT A
+  have f: FALSE := NotElim(a, n)
+  have r: NOT NOT A := NotIntro(n, f)
+  exact r
+qed
+
+theorem modus_tollens: A => B, NOT B |- NOT A
+proof
+  assume i: A => B
+  assume nb: NOT B
+  assume a: A
+  have b: B := ModusPonens(i, a)
+  have f: FALSE := NotElim(b, nb)
+  have r: NOT A := NotIntro(a, f)
+  exact r
+qed
+
+theorem contraposition: A => B |- NOT B => NOT A
+proof
+  assume i: A => B
+  assume nb: NOT B
+  assume a: A
+  have b: B := ModusPonens(i, a)
+  have f: FALSE := NotElim(b, nb)
+  have na: NOT A := NotIntro(a, f)
+  have r: NOT B => NOT A := ImpliesIntro(nb, na)
+  exact r
+qed
+
+theorem iff_comm: A <=> B |- B <=> A
+proof
+  assume h: A <=> B
+  assume x: A
+  have y: B := IffElim(h, x)
+  have ab: A => B := ImpliesIntro(x, y)
+  assume u: B
+  have v: A := IffElim(h, u)
+  have ba: B => A := ImpliesIntro(u, v)
+  have r: B <=> A := IffIntro(ba, ab)
+  exact r
+qed

@@ -1,114 +1,192 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Core AST data types for the Alif proof verifier.
+use std::fmt;
 
-/// A logical formula in propositional or first-order logic.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Term {
+    Name(String),
+    App(String, Vec<Term>),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Formula {
-    /// A propositional variable or atom, e.g. `A`, `human(X)`.
-    Var(String),
-    /// Conjunction: `A AND B`.
+    Atom(String, Vec<Term>),
+    Eq(Term, Term),
+    Bottom,
     And(Box<Formula>, Box<Formula>),
-    /// Disjunction: `A OR B`.
     Or(Box<Formula>, Box<Formula>),
-    /// Negation: `NOT A`.
     Not(Box<Formula>),
-    /// Implication: `A => B`.
     Implies(Box<Formula>, Box<Formula>),
-    /// Universal quantification: `forall X: F`.
+    Iff(Box<Formula>, Box<Formula>),
     Forall(String, Box<Formula>),
-    /// Existential quantification: `exists X: F`.
     Exists(String, Box<Formula>),
 }
 
-impl std::fmt::Display for Formula {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Justification {
+    Ref(String),
+    Rule(String, Vec<Term>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProofStep {
+    Assume {
+        name: String,
+        formula: Formula,
+        offset: usize,
+    },
+    Have {
+        name: String,
+        formula: Formula,
+        justification: Justification,
+        offset: usize,
+    },
+    Exact {
+        justification: Justification,
+        offset: usize,
+    },
+}
+
+impl ProofStep {
+    pub fn offset(&self) -> usize {
         match self {
-            Formula::Var(name) => write!(f, "{}", name),
+            ProofStep::Assume { offset, .. }
+            | ProofStep::Have { offset, .. }
+            | ProofStep::Exact { offset, .. } => *offset,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Theorem {
+    pub name: String,
+    pub hypotheses: Vec<Formula>,
+    pub conclusion: Formula,
+    pub steps: Vec<ProofStep>,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    Axiom {
+        name: String,
+        formula: Formula,
+        offset: usize,
+    },
+    Theorem(Theorem),
+    Import {
+        path: String,
+        offset: usize,
+    },
+}
+
+fn write_terms(f: &mut fmt::Formatter<'_>, terms: &[Term]) -> fmt::Result {
+    for (i, term) in terms.iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "{}", term)?;
+    }
+    Ok(())
+}
+
+impl fmt::Display for Term {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Term::Name(name) => write!(f, "{}", name),
+            Term::App(name, args) => {
+                write!(f, "{}(", name)?;
+                write_terms(f, args)?;
+                write!(f, ")")
+            }
+        }
+    }
+}
+
+impl fmt::Display for Formula {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Formula::Atom(name, args) if args.is_empty() => write!(f, "{}", name),
+            Formula::Atom(name, args) => {
+                write!(f, "{}(", name)?;
+                write_terms(f, args)?;
+                write!(f, ")")
+            }
+            Formula::Eq(a, b) => write!(f, "{} = {}", a, b),
+            Formula::Bottom => write!(f, "FALSE"),
             Formula::And(a, b) => write!(f, "({} AND {})", a, b),
             Formula::Or(a, b) => write!(f, "({} OR {})", a, b),
             Formula::Not(a) => write!(f, "NOT {}", a),
             Formula::Implies(a, b) => write!(f, "({} => {})", a, b),
+            Formula::Iff(a, b) => write!(f, "({} <=> {})", a, b),
             Formula::Forall(x, body) => write!(f, "forall {}: {}", x, body),
             Formula::Exists(x, body) => write!(f, "exists {}: {}", x, body),
         }
     }
 }
 
-/// A justification for a proof step — either an axiom reference or a rule application.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Justification {
-    /// Reference to a named axiom, e.g. `identity`.
-    Axiom(String),
-    /// Application of a named rule to a list of hypothesis names, e.g. `AndIntro(h1, h2)`.
-    Rule(String, Vec<String>),
-}
-
-/// A single step in a proof.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ProofStep {
-    /// Introduce a hypothesis into scope.
-    Assume { name: String, formula: Formula },
-    /// Derive a new formula from existing hypotheses.
-    Have {
-        name: String,
-        formula: Formula,
-        justification: Justification,
-    },
-    /// Conclude the proof by citing the final result.
-    Exact { justification: Justification },
-}
-
-/// A theorem statement together with its proof steps.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Theorem {
-    /// The theorem's name.
-    pub name: String,
-    /// The hypotheses (antecedents) of the theorem.
-    pub hypotheses: Vec<Formula>,
-    /// The formula to be proved.
-    pub conclusion: Formula,
-    /// The ordered list of proof steps.
-    pub steps: Vec<ProofStep>,
-}
-
-/// A top-level item in an Alif source file.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Item {
-    /// An axiom declaration.
-    Axiom { name: String, formula: Formula },
-    /// A theorem with proof.
-    Theorem(Theorem),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn formula_display_var() {
-        let f = Formula::Var("A".to_string());
-        assert_eq!(f.to_string(), "A");
+    fn atom(name: &str) -> Formula {
+        Formula::Atom(name.to_string(), vec![])
     }
 
     #[test]
-    fn formula_display_and() {
-        let f = Formula::And(
-            Box::new(Formula::Var("A".to_string())),
-            Box::new(Formula::Var("B".to_string())),
+    fn display_atom() {
+        assert_eq!(atom("A").to_string(), "A");
+    }
+
+    #[test]
+    fn display_predicate() {
+        let f = Formula::Atom(
+            "human".to_string(),
+            vec![Term::Name("socrates".to_string())],
         );
+        assert_eq!(f.to_string(), "human(socrates)");
+    }
+
+    #[test]
+    fn display_nested_term() {
+        let t = Term::App(
+            "f".to_string(),
+            vec![
+                Term::Name("a".to_string()),
+                Term::App("g".to_string(), vec![Term::Name("b".to_string())]),
+            ],
+        );
+        assert_eq!(t.to_string(), "f(a, g(b))");
+    }
+
+    #[test]
+    fn display_and() {
+        let f = Formula::And(Box::new(atom("A")), Box::new(atom("B")));
         assert_eq!(f.to_string(), "(A AND B)");
     }
 
     #[test]
-    fn formula_display_not() {
-        let f = Formula::Not(Box::new(Formula::Var("A".to_string())));
+    fn display_not() {
+        let f = Formula::Not(Box::new(atom("A")));
         assert_eq!(f.to_string(), "NOT A");
     }
 
     #[test]
-    fn formula_display_forall() {
-        let f = Formula::Forall("X".to_string(), Box::new(Formula::Var("P".to_string())));
+    fn display_forall() {
+        let f = Formula::Forall("X".to_string(), Box::new(atom("P")));
         assert_eq!(f.to_string(), "forall X: P");
+    }
+
+    #[test]
+    fn display_bottom_and_eq() {
+        assert_eq!(Formula::Bottom.to_string(), "FALSE");
+        let f = Formula::Eq(Term::Name("a".to_string()), Term::Name("b".to_string()));
+        assert_eq!(f.to_string(), "a = b");
+    }
+
+    #[test]
+    fn display_iff() {
+        let f = Formula::Iff(Box::new(atom("A")), Box::new(atom("B")));
+        assert_eq!(f.to_string(), "(A <=> B)");
     }
 }

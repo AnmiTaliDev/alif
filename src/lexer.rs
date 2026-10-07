@@ -1,136 +1,113 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Tokenizer for the Alif proof language, built with the `logos` crate.
-//!
-//! Call [`lex`] to convert a source string into a flat token stream. The
-//! stream is consumed by [`crate::parser`].
-
 use logos::Logos;
 
-/// All tokens recognised by the Alif lexer.
-///
-/// Whitespace and line comments (`-- …`) are skipped automatically.
+use crate::error::ParseError;
+
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\r\n]+")]
 #[logos(skip r"--[^\n]*")]
 pub enum Token {
-    // Keywords — matched before `Ident` because logos tries longer / literal
-    // patterns before regex patterns of equal priority.
-    /// `axiom`
     #[token("axiom")]
     Axiom,
-    /// `theorem`
     #[token("theorem")]
     Theorem,
-    /// `proof`
+    #[token("import")]
+    Import,
     #[token("proof")]
     Proof,
-    /// `assume`
     #[token("assume")]
     Assume,
-    /// `have`
     #[token("have")]
     Have,
-    /// `exact`
     #[token("exact")]
     Exact,
-    /// `qed`
     #[token("qed")]
     Qed,
-    /// `forall`
     #[token("forall")]
     Forall,
-    /// `exists`
     #[token("exists")]
     Exists,
 
-    // Logical connective keywords — uppercase, matched before `Ident`.
-    /// `AND`
     #[token("AND")]
     And,
-    /// `OR`
     #[token("OR")]
     Or,
-    /// `NOT`
     #[token("NOT")]
     Not,
+    #[token("FALSE")]
+    False,
 
-    // Multi-character punctuation — must appear before single-char variants.
-    /// `|-` (turnstile / sequent separator)
     #[token("|-")]
     Turnstile,
-    /// `=>` (implication arrow)
     #[token("=>")]
     Implies,
-    /// `:=` (justification assignment)
+    #[token("<=>")]
+    Iff,
     #[token(":=")]
     ColonEq,
+    #[token("=")]
+    Equals,
 
-    // Single-character punctuation.
-    /// `:`
     #[token(":")]
     Colon,
-    /// `,`
     #[token(",")]
     Comma,
-    /// `(`
     #[token("(")]
     LParen,
-    /// `)`
     #[token(")")]
     RParen,
 
-    /// An identifier: a letter or underscore followed by zero or more
-    /// alphanumerics or underscores. Matched last so keywords take priority.
+    #[regex(r#""[^"\n]*""#)]
+    Str,
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*")]
     Ident,
 }
 
-/// Lex `source` and return an owned token stream as `Vec<(Token, String)>`.
-///
-/// Each entry pairs a [`Token`] variant with the source slice that produced it,
-/// allowing the parser to recover identifier text.
-///
-/// # Errors
-///
-/// Returns an error string containing the byte offset when an unrecognised
-/// character is encountered.
-pub fn lex(source: &str) -> Result<Vec<(Token, String)>, String> {
-    let mut tokens = Vec::new();
-    let lexer = Token::lexer(source);
-    for (result, span) in lexer.spanned() {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lexeme {
+    pub token: Token,
+    pub text: String,
+    pub offset: usize,
+}
+
+pub fn lex(source: &str) -> Result<Vec<Lexeme>, ParseError> {
+    let mut lexemes = Vec::new();
+    for (result, span) in Token::lexer(source).spanned() {
         match result {
-            Ok(tok) => tokens.push((tok, source[span].to_owned())),
+            Ok(token) => lexemes.push(Lexeme {
+                token,
+                text: source[span.clone()].to_owned(),
+                offset: span.start,
+            }),
             Err(()) => {
-                let start = span.start;
-                return Err(format!(
-                    "unrecognised token at byte offset {}: {:?}",
-                    start,
-                    &source[span],
-                ))
+                return Err(ParseError {
+                    message: format!("unrecognised token {:?}", &source[span.clone()]),
+                    offset: Some(span.start),
+                    location: None,
+                })
             }
         }
     }
-    Ok(tokens)
+    Ok(lexemes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn token_kinds(src: &str) -> Vec<Token> {
-        lex(src).unwrap().into_iter().map(|(t, _)| t).collect()
+    fn kinds(src: &str) -> Vec<Token> {
+        lex(src).unwrap().into_iter().map(|l| l.token).collect()
     }
 
     #[test]
-    fn lex_keywords() {
-        let kinds =
-            token_kinds("axiom theorem proof assume have exact qed forall exists");
+    fn keywords() {
         assert_eq!(
-            kinds,
+            kinds("axiom theorem import proof assume have exact qed forall exists"),
             vec![
                 Token::Axiom,
                 Token::Theorem,
+                Token::Import,
                 Token::Proof,
                 Token::Assume,
                 Token::Have,
@@ -143,14 +120,15 @@ mod tests {
     }
 
     #[test]
-    fn lex_operators() {
-        let kinds = token_kinds("|- => := : , ( ) AND OR NOT");
+    fn operators() {
         assert_eq!(
-            kinds,
+            kinds("|- => <=> := = : , ( ) AND OR NOT FALSE"),
             vec![
                 Token::Turnstile,
                 Token::Implies,
+                Token::Iff,
                 Token::ColonEq,
+                Token::Equals,
                 Token::Colon,
                 Token::Comma,
                 Token::LParen,
@@ -158,31 +136,44 @@ mod tests {
                 Token::And,
                 Token::Or,
                 Token::Not,
+                Token::False,
             ]
         );
     }
 
     #[test]
-    fn lex_ident_slices() {
-        let toks = lex("foo Bar _baz").unwrap();
-        let slices: Vec<&str> = toks.iter().map(|(_, s)| s.as_str()).collect();
-        assert_eq!(slices, vec!["foo", "Bar", "_baz"]);
+    fn identifier_slices() {
+        let lexemes = lex("foo Bar _baz").unwrap();
+        let texts: Vec<&str> = lexemes.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, vec!["foo", "Bar", "_baz"]);
     }
 
     #[test]
-    fn lex_skips_comments() {
-        let kinds = token_kinds("axiom -- this is a comment\ntheorem");
-        assert_eq!(kinds, vec![Token::Axiom, Token::Theorem]);
+    fn keyword_prefix_is_identifier() {
+        assert_eq!(kinds("ANDx FALSEY proofs"), vec![Token::Ident; 3]);
     }
 
     #[test]
-    fn lex_unrecognised_returns_error() {
-        assert!(lex("axiom @bad").is_err());
+    fn skips_comments() {
+        assert_eq!(kinds("axiom -- comment\ntheorem"), vec![Token::Axiom, Token::Theorem]);
     }
 
     #[test]
-    fn lex_and_or_not_before_ident() {
-        let kinds = token_kinds("AND OR NOT");
-        assert_eq!(kinds, vec![Token::And, Token::Or, Token::Not]);
+    fn string_literal() {
+        let lexemes = lex("import \"a/b.alif\"").unwrap();
+        assert_eq!(lexemes[1].token, Token::Str);
+        assert_eq!(lexemes[1].text, "\"a/b.alif\"");
+    }
+
+    #[test]
+    fn offsets_are_byte_positions() {
+        let lexemes = lex("ab  cd").unwrap();
+        assert_eq!(lexemes[1].offset, 4);
+    }
+
+    #[test]
+    fn unrecognised_character_reports_offset() {
+        let err = lex("axiom @bad").unwrap_err();
+        assert_eq!(err.offset, Some(6));
     }
 }

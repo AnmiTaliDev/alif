@@ -1,239 +1,437 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Proof checker: walks proof steps and verifies each against inference rules.
+use std::collections::BTreeSet;
 
-use std::collections::HashMap;
+use crate::context::{Context, Sequent};
+use crate::error::CheckError;
+use crate::formula_ops::{alpha_eq, matches_all};
+use crate::rules::{apply_rule, lookup_fact, Env, Fact, Rule};
+use crate::term::{Formula, Justification, ProofStep, Term, Theorem};
 
-use crate::error::{CheckError, RuleError};
-use crate::rules::{apply_rule, Rule};
-use crate::term::{Formula, Justification, ProofStep, Theorem};
-
-/// Check that `theorem`'s proof is valid given the provided `axioms`.
-///
-/// Each proof step is verified in order. The environment (set of named formulas
-/// in scope) grows as `assume` and `have` steps are processed.
-///
-/// # Errors
-///
-/// Returns a [`CheckError`] identifying the step index, the offending step, and
-/// a human-readable explanation of the failure.
-pub fn check(
-    theorem: &Theorem,
-    axioms: &HashMap<String, Formula>,
-) -> Result<(), CheckError> {
-    // Start with the theorem's declared hypotheses pre-loaded into scope.
-    let mut env: HashMap<String, Formula> = HashMap::new();
-    for (i, hyp) in theorem.hypotheses.iter().enumerate() {
-        env.insert(format!("_hyp{}", i), hyp.clone());
-    }
-
-    let mut last_formula: Option<Formula> = None;
-
-    for (idx, step) in theorem.steps.iter().enumerate() {
-        let make_err = |msg: String| CheckError {
-            step_index: idx,
-            step: Box::new(step.clone()),
-            message: msg,
-        };
-
-        match step {
-            ProofStep::Assume { name, formula } => {
-                env.insert(name.clone(), formula.clone());
-                last_formula = Some(formula.clone());
-            }
-
-            ProofStep::Have { name, formula, justification } => {
-                let derived = resolve_justification(justification, &env, axioms)
-                    .map_err(|e| make_err(e.to_string()))?;
-
-                if !formulas_match(&derived, formula) {
-                    return Err(make_err(format!(
-                        "derived formula `{}` does not match declared formula `{}`",
-                        derived, formula
-                    )));
-                }
-
-                env.insert(name.clone(), formula.clone());
-                last_formula = Some(formula.clone());
-            }
-
-            ProofStep::Exact { justification } => {
-                let derived = match justification {
-                    Justification::Axiom(name) => {
-                        // First check if it's a name in the environment
-                        if let Some(f) = env.get(name) {
-                            f.clone()
-                        } else if let Some(f) = axioms.get(name) {
-                            f.clone()
-                        } else {
-                            return Err(make_err(format!(
-                                "unknown name `{}`: not in scope and not a known axiom",
-                                name
-                            )));
-                        }
-                    }
-                    Justification::Rule(rule_name, args) => {
-                        resolve_rule(rule_name, args, &env)
-                            .map_err(|e| make_err(e.to_string()))?
-                    }
-                };
-
-                if !formulas_match(&derived, &theorem.conclusion) {
-                    return Err(make_err(format!(
-                        "`exact` produced `{}` but the theorem's conclusion is `{}`",
-                        derived, theorem.conclusion
-                    )));
-                }
-
-                last_formula = Some(derived);
-            }
-        }
-    }
-
-    // Final check: the last formula must equal the conclusion.
-    match &last_formula {
-        Some(f) if formulas_match(f, &theorem.conclusion) => Ok(()),
-        Some(f) => Err(CheckError {
-            step_index: theorem.steps.len(),
-            step: Box::new(theorem.steps.last().cloned().unwrap_or(ProofStep::Exact {
-                justification: Justification::Axiom("_".to_string()),
-            })),
-            message: format!(
-                "proof ends with `{}` but conclusion is `{}`",
-                f, theorem.conclusion
-            ),
-        }),
-        None => Err(CheckError {
+pub fn check(theorem: &Theorem, ctx: &Context) -> Result<(), CheckError> {
+    let Some(last) = theorem.steps.len().checked_sub(1) else {
+        return Err(CheckError {
+            theorem: theorem.name.clone(),
             step_index: 0,
-            step: Box::new(ProofStep::Exact {
-                justification: Justification::Axiom("_".to_string()),
-            }),
+            offset: theorem.offset,
             message: "proof has no steps".to_string(),
-        }),
-    }
-}
+            location: None,
+        });
+    };
 
-/// Resolve a [`Justification`] to a [`Formula`].
-fn resolve_justification(
-    justification: &Justification,
-    env: &HashMap<String, Formula>,
-    axioms: &HashMap<String, Formula>,
-) -> Result<Formula, RuleError> {
-    match justification {
-        Justification::Axiom(name) => {
-            env.get(name)
-                .or_else(|| axioms.get(name))
-                .cloned()
-                .ok_or_else(|| RuleError {
-                    rule: name.clone(),
-                    reason: format!("name `{}` is not in scope and is not a known axiom", name),
-                })
+    let mut env = Env::new();
+    for (index, step) in theorem.steps.iter().enumerate() {
+        if let Err(message) = check_step(theorem, ctx, &mut env, step, index == last) {
+            return Err(step_error(theorem, index, message));
         }
-        Justification::Rule(rule_name, args) => resolve_rule(rule_name, args, env),
+    }
+
+    match theorem.steps[last] {
+        ProofStep::Exact { .. } => Ok(()),
+        _ => Err(step_error(
+            theorem,
+            last,
+            "proof must end with `exact`".to_string(),
+        )),
     }
 }
 
-/// Look up rule by name and apply it to the listed hypothesis names.
-fn resolve_rule(
-    rule_name: &str,
-    args: &[String],
-    env: &HashMap<String, Formula>,
-) -> Result<Formula, RuleError> {
-    let rule = Rule::from_name(rule_name).ok_or_else(|| RuleError {
-        rule: rule_name.to_string(),
-        reason: "unknown rule name".to_string(),
-    })?;
+fn step_error(theorem: &Theorem, index: usize, message: String) -> CheckError {
+    CheckError {
+        theorem: theorem.name.clone(),
+        step_index: index,
+        offset: theorem.steps[index].offset(),
+        message,
+        location: None,
+    }
+}
 
-    let mut premises = Vec::with_capacity(args.len());
+fn check_step(
+    theorem: &Theorem,
+    ctx: &Context,
+    env: &mut Env,
+    step: &ProofStep,
+    is_last: bool,
+) -> Result<(), String> {
+    match step {
+        ProofStep::Assume { name, formula, .. } => define(
+            env,
+            name,
+            Fact {
+                formula: formula.clone(),
+                deps: BTreeSet::from([name.clone()]),
+                assumption: true,
+            },
+        ),
+        ProofStep::Have {
+            name,
+            formula,
+            justification,
+            ..
+        } => {
+            let derived = derive(justification, env, ctx, formula)?;
+            if !alpha_eq(&derived.formula, formula) {
+                return Err(format!(
+                    "derived formula `{}` does not match declared formula `{}`",
+                    derived.formula, formula
+                ));
+            }
+            define(
+                env,
+                name,
+                Fact {
+                    formula: formula.clone(),
+                    deps: derived.deps,
+                    assumption: false,
+                },
+            )
+        }
+        ProofStep::Exact { justification, .. } => {
+            if !is_last {
+                return Err("`exact` must be the last step of the proof".to_string());
+            }
+            let derived = derive(justification, env, ctx, &theorem.conclusion)?;
+            if !alpha_eq(&derived.formula, &theorem.conclusion) {
+                return Err(format!(
+                    "`exact` produced `{}` but the theorem's conclusion is `{}`",
+                    derived.formula, theorem.conclusion
+                ));
+            }
+            for dep in &derived.deps {
+                let assumed = &env[dep].formula;
+                if !theorem.hypotheses.iter().any(|h| alpha_eq(h, assumed)) {
+                    return Err(format!(
+                        "the result depends on assumption `{}: {}`, which is neither discharged nor a hypothesis of the theorem",
+                        dep, assumed
+                    ));
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn define(env: &mut Env, name: &str, fact: Fact) -> Result<(), String> {
+    if env.contains_key(name) {
+        return Err(format!("name `{}` is already defined in this proof", name));
+    }
+    env.insert(name.to_string(), fact);
+    Ok(())
+}
+
+fn derive(
+    justification: &Justification,
+    env: &Env,
+    ctx: &Context,
+    goal: &Formula,
+) -> Result<Fact, String> {
+    match justification {
+        Justification::Ref(name) => {
+            if let Some(fact) = lookup_fact(env, ctx, name) {
+                return Ok(Fact {
+                    assumption: false,
+                    ..fact
+                });
+            }
+            apply_named(name, &[], env, ctx, goal).unwrap_or_else(|| {
+                Err(format!(
+                    "`{}` is not in scope and is not an axiom, a rule or a theorem",
+                    name
+                ))
+            })
+        }
+        Justification::Rule(name, args) => apply_named(name, args, env, ctx, goal)
+            .unwrap_or_else(|| Err(format!("`{}` is not a rule or a theorem", name))),
+    }
+}
+
+fn apply_named(
+    name: &str,
+    args: &[Term],
+    env: &Env,
+    ctx: &Context,
+    goal: &Formula,
+) -> Option<Result<Fact, String>> {
+    if let Some(rule) = Rule::from_name(name) {
+        return Some(apply_rule(rule, args, env, ctx, goal).map_err(|e| e.to_string()));
+    }
+    ctx.theorems
+        .get(name)
+        .map(|sequent| apply_theorem(name, sequent, args, env, ctx, goal))
+}
+
+fn apply_theorem(
+    name: &str,
+    sequent: &Sequent,
+    args: &[Term],
+    env: &Env,
+    ctx: &Context,
+    goal: &Formula,
+) -> Result<Fact, String> {
+    if args.len() != sequent.hypotheses.len() {
+        return Err(format!(
+            "theorem `{}` expects {} argument{}, got {}",
+            name,
+            sequent.hypotheses.len(),
+            if sequent.hypotheses.len() == 1 { "" } else { "s" },
+            args.len()
+        ));
+    }
+
+    let mut facts = Vec::with_capacity(args.len());
     for arg in args {
-        let f = env.get(arg).ok_or_else(|| RuleError {
-            rule: rule_name.to_string(),
-            reason: format!("hypothesis `{}` is not in scope", arg),
-        })?;
-        premises.push(f.clone());
+        let Term::Name(arg_name) = arg else {
+            return Err(format!(
+                "arguments of theorem `{}` must be names of facts in scope",
+                name
+            ));
+        };
+        match lookup_fact(env, ctx, arg_name) {
+            Some(fact) => facts.push(fact),
+            None => {
+                return Err(format!(
+                    "`{}` is not in scope and is not an axiom",
+                    arg_name
+                ))
+            }
+        }
     }
 
-    apply_rule(&rule, &premises)
-}
+    let mut pairs: Vec<(&Formula, &Formula)> = sequent
+        .hypotheses
+        .iter()
+        .zip(facts.iter().map(|f| &f.formula))
+        .collect();
+    pairs.push((&sequent.conclusion, goal));
+    if !matches_all(&pairs) {
+        return Err(format!(
+            "the arguments and the declared formula are not an instance of theorem `{}`: {}",
+            name, sequent
+        ));
+    }
 
-/// Check whether two formulas are structurally equal.
-///
-/// This is syntactic equality: no alpha-equivalence or unification.
-fn formulas_match(a: &Formula, b: &Formula) -> bool {
-    a == b
+    let deps = facts.iter().flat_map(|f| f.deps.iter().cloned()).collect();
+    Ok(Fact {
+        formula: goal.clone(),
+        deps,
+        assumption: false,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::term::{Formula, Justification, ProofStep, Theorem};
+    use crate::parser::parse_source;
+    use crate::term::Item;
 
-    fn var(s: &str) -> Formula { Formula::Var(s.to_string()) }
+    fn run(source: &str) -> Result<(), CheckError> {
+        let mut ctx = Context::default();
+        for item in parse_source(source).unwrap() {
+            match item {
+                Item::Axiom { name, formula, .. } => {
+                    ctx.axioms.insert(name, formula);
+                }
+                Item::Theorem(theorem) => {
+                    check(&theorem, &ctx)?;
+                    ctx.theorems.insert(
+                        theorem.name.clone(),
+                        Sequent {
+                            hypotheses: theorem.hypotheses.clone(),
+                            conclusion: theorem.conclusion.clone(),
+                        },
+                    );
+                }
+                Item::Import { .. } => panic!("imports are not handled here"),
+            }
+        }
+        Ok(())
+    }
 
-    #[test]
-    fn valid_assume_exact_proof() {
-        // theorem id: A |- A
-        // proof assume h: A; exact h; qed
-        let thm = Theorem {
-            name: "id".to_string(),
-            hypotheses: vec![var("A")],
-            conclusion: var("A"),
-            steps: vec![
-                ProofStep::Assume { name: "h".to_string(), formula: var("A") },
-                ProofStep::Exact { justification: Justification::Axiom("h".to_string()) },
-            ],
-        };
-        assert!(check(&thm, &HashMap::new()).is_ok());
+    fn message(source: &str) -> String {
+        run(source).unwrap_err().message
     }
 
     #[test]
-    fn invalid_exact_wrong_conclusion() {
-        let thm = Theorem {
-            name: "bad".to_string(),
-            hypotheses: vec![var("A")],
-            conclusion: var("B"),
-            steps: vec![
-                ProofStep::Assume { name: "h".to_string(), formula: var("A") },
-                ProofStep::Exact { justification: Justification::Axiom("h".to_string()) },
-            ],
-        };
-        assert!(check(&thm, &HashMap::new()).is_err());
+    fn assume_then_exact() {
+        run("theorem t: A |- A\nproof\n  assume h: A\n  exact h\nqed").unwrap();
     }
 
     #[test]
-    fn and_intro_proof() {
-        // theorem: A, B |- A AND B
-        let thm = Theorem {
-            name: "and_i".to_string(),
-            hypotheses: vec![var("A"), var("B")],
-            conclusion: Formula::And(Box::new(var("A")), Box::new(var("B"))),
-            steps: vec![
-                ProofStep::Assume { name: "ha".to_string(), formula: var("A") },
-                ProofStep::Assume { name: "hb".to_string(), formula: var("B") },
-                ProofStep::Have {
-                    name: "c".to_string(),
-                    formula: Formula::And(Box::new(var("A")), Box::new(var("B"))),
-                    justification: Justification::Rule(
-                        "AndIntro".to_string(),
-                        vec!["ha".to_string(), "hb".to_string()],
-                    ),
-                },
-                ProofStep::Exact { justification: Justification::Axiom("c".to_string()) },
-            ],
-        };
-        assert!(check(&thm, &HashMap::new()).is_ok());
+    fn assumption_must_be_a_hypothesis() {
+        let msg = message("theorem t: A |- B\nproof\n  assume h: B\n  exact h\nqed");
+        assert!(msg.contains("neither discharged nor a hypothesis"), "{}", msg);
     }
 
     #[test]
-    fn unknown_hypothesis_returns_error() {
-        let thm = Theorem {
-            name: "bad".to_string(),
-            hypotheses: vec![],
-            conclusion: var("A"),
-            steps: vec![
-                ProofStep::Exact { justification: Justification::Axiom("nonexistent".to_string()) },
-            ],
-        };
-        assert!(check(&thm, &HashMap::new()).is_err());
+    fn hypothesis_matches_up_to_renaming() {
+        run("theorem t: forall X: P(X) |- forall Y: P(Y)\nproof\n  assume h: forall Y: P(Y)\n  exact h\nqed")
+            .unwrap();
+    }
+
+    #[test]
+    fn wrong_conclusion_is_rejected() {
+        let msg = message("theorem t: A |- B\nproof\n  assume h: A\n  exact h\nqed");
+        assert!(msg.contains("conclusion"), "{}", msg);
+    }
+
+    #[test]
+    fn proof_must_end_with_exact() {
+        let msg = message("theorem t: A |- A\nproof\n  assume h: A\nqed");
+        assert!(msg.contains("must end with `exact`"), "{}", msg);
+    }
+
+    #[test]
+    fn exact_must_be_last() {
+        let msg = message("theorem t: A |- A\nproof\n  assume h: A\n  exact h\n  exact h\nqed");
+        assert!(msg.contains("last step"), "{}", msg);
+    }
+
+    #[test]
+    fn empty_proof_is_rejected() {
+        assert!(message("theorem t: A |- A\nproof\nqed").contains("no steps"));
+    }
+
+    #[test]
+    fn duplicate_names_are_rejected() {
+        let msg = message(
+            "theorem t: A |- A\nproof\n  assume h: A\n  have h: A := h\n  exact h\nqed",
+        );
+        assert!(msg.contains("already defined"), "{}", msg);
+    }
+
+    #[test]
+    fn unknown_reference_is_rejected() {
+        let msg = message("theorem t: A |- A\nproof\n  exact nothing\nqed");
+        assert!(msg.contains("`nothing` is not in scope"), "{}", msg);
+    }
+
+    #[test]
+    fn unknown_rule_is_rejected() {
+        let msg = message("theorem t: A |- A\nproof\n  assume h: A\n  exact Nope(h)\nqed");
+        assert!(msg.contains("not a rule or a theorem"), "{}", msg);
+    }
+
+    #[test]
+    fn declared_formula_must_match_derivation() {
+        let msg = message(
+            "theorem t: A, B |- A\nproof\n  assume a: A\n  assume b: B\n  have c: A := AndIntro(a, b)\n  exact c\nqed",
+        );
+        assert!(msg.contains("does not match declared formula"), "{}", msg);
+    }
+
+    #[test]
+    fn declared_formula_matches_up_to_renaming() {
+        run("theorem t: forall X: P(X) |- forall Y: P(Y)\nproof\n  assume h: forall X: P(X)\n  have g: forall Y: P(Y) := h\n  exact g\nqed")
+            .unwrap();
+    }
+
+    #[test]
+    fn implication_introduction_discharges_assumption() {
+        run("theorem t: A |- B => A\nproof\n  assume a: A\n  assume b: B\n  have r: B => A := ImpliesIntro(b, a)\n  exact r\nqed")
+            .unwrap();
+    }
+
+    #[test]
+    fn undischarged_temporary_assumption_blocks_exact() {
+        let msg = message(
+            "theorem t: A |- B\nproof\n  assume a: A\n  assume b: B\n  exact b\nqed",
+        );
+        assert!(msg.contains("assumption `b: B`"), "{}", msg);
+    }
+
+    #[test]
+    fn implies_intro_needs_an_assumption() {
+        let msg = message(
+            "theorem t: A, B |- B => A\nproof\n  assume a: A\n  assume b: B\n  have x: B := b\n  have r: B => A := ImpliesIntro(x, a)\n  exact r\nqed",
+        );
+        assert!(msg.contains("not an assumption"), "{}", msg);
+    }
+
+    #[test]
+    fn axiom_reference() {
+        run("axiom ax: P(a)\ntheorem t: |- P(a)\nproof\n  exact ax\nqed").unwrap();
+    }
+
+    #[test]
+    fn axiom_reference_with_wrong_conclusion() {
+        assert!(run("axiom ax: P(a)\ntheorem t: |- P(b)\nproof\n  exact ax\nqed").is_err());
+    }
+
+    #[test]
+    fn theorem_applied_with_instantiation() {
+        let src = "theorem id: |- A => A\nproof\n  assume a: A\n  have r: A => A := ImpliesIntro(a, a)\n  exact r\nqed\n\
+                   theorem use_id: |- (B AND C) => (B AND C)\nproof\n  exact id\nqed";
+        run(src).unwrap();
+    }
+
+    #[test]
+    fn theorem_applied_with_hypotheses() {
+        let src = "theorem comm: A AND B |- B AND A\nproof\n  assume h: A AND B\n  have a: A := AndElimLeft(h)\n  have b: B := AndElimRight(h)\n  have r: B AND A := AndIntro(b, a)\n  exact r\nqed\n\
+                   theorem use_comm: X AND Y |- Y AND X\nproof\n  assume h: X AND Y\n  have r: Y AND X := comm(h)\n  exact r\nqed";
+        run(src).unwrap();
+    }
+
+    #[test]
+    fn theorem_application_rejects_non_instance() {
+        let src = "theorem comm: A AND B |- B AND A\nproof\n  assume h: A AND B\n  have a: A := AndElimLeft(h)\n  have b: B := AndElimRight(h)\n  have r: B AND A := AndIntro(b, a)\n  exact r\nqed\n\
+                   theorem bad: X AND Y |- X AND Y\nproof\n  assume h: X AND Y\n  have r: X AND Y := comm(h)\n  exact r\nqed";
+        let msg = message(src);
+        assert!(msg.contains("not an instance"), "{}", msg);
+    }
+
+    #[test]
+    fn theorem_application_checks_argument_count() {
+        let src = "theorem id: |- A => A\nproof\n  assume a: A\n  have r: A => A := ImpliesIntro(a, a)\n  exact r\nqed\n\
+                   theorem bad: X |- X => X\nproof\n  assume x: X\n  have r: X => X := id(x)\n  exact r\nqed";
+        let msg = message(src);
+        assert!(msg.contains("expects 0 arguments"), "{}", msg);
+    }
+
+    #[test]
+    fn theorem_application_inherits_dependencies() {
+        let src = "theorem id: |- A => A\nproof\n  assume a: A\n  have r: A => A := ImpliesIntro(a, a)\n  exact r\nqed\n\
+                   theorem snd: X, Y |- Y\nproof\n  assume x: X\n  assume y: Y\n  have r: Y => Y := id\n  have s: Y := ModusPonens(r, y)\n  exact s\nqed";
+        run(src).unwrap();
+    }
+
+    #[test]
+    fn axiom_can_be_a_theorem_argument() {
+        let src = "axiom ax: X AND Y\n\
+                   theorem t: |- Y AND X\nproof\n  have r: Y AND X := and_comm(ax)\n  exact r\nqed";
+        let mut ctx = crate::stdlib::load_stdlib().unwrap();
+        for item in parse_source(src).unwrap() {
+            match item {
+                Item::Axiom { name, formula, .. } => {
+                    ctx.axioms.insert(name, formula);
+                }
+                Item::Theorem(theorem) => check(&theorem, &ctx).unwrap(),
+                Item::Import { .. } => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn forall_elim_with_predicate() {
+        let src = "theorem t: forall X: human(X), human(socrates) |- human(socrates)\nproof\n  assume all: forall X: human(X)\n  assume h: human(socrates)\n  have s: human(socrates) := ForallElim(all, socrates)\n  exact s\nqed";
+        run(src).unwrap();
+    }
+
+    #[test]
+    fn forall_intro_blocked_by_hypothesis() {
+        let src = "theorem t: P(x) |- forall x: P(x)\nproof\n  assume h: P(x)\n  have g: forall x: P(x) := ForallIntro(h, x)\n  exact g\nqed";
+        let msg = message(src);
+        assert!(msg.contains("occurs free"), "{}", msg);
+    }
+
+    #[test]
+    fn false_elim_proves_anything() {
+        run("theorem t: FALSE |- Z\nproof\n  assume f: FALSE\n  have z: Z := FalseElim(f)\n  exact z\nqed")
+            .unwrap();
+    }
+
+    #[test]
+    fn exact_may_apply_a_rule_directly() {
+        run("theorem t: A, B |- A AND B\nproof\n  assume a: A\n  assume b: B\n  exact AndIntro(a, b)\nqed")
+            .unwrap();
     }
 }

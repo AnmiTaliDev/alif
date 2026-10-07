@@ -10,11 +10,5 @@ license     = "GPL-3.0-only"
 name       = "alif"
 crate-type = ["rlib", "cdylib"]
 
-[[example]]
-name = "alif"
-
 [dependencies]
-logos     = "0.14"
-chumsky   = "0.9"
-ariadne   = "0.4"
-rustyline = "14"
+logos = "0.14"
