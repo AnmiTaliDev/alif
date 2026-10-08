@@ -1,106 +1,89 @@
 # Inference rules
 
-This document describes how the checker treats a proof and defines the 21 built-in rules. Syntax is defined in [syntax.md](syntax.md).
+This document defines how a proof is checked and what each of the 21 built-in rules does. File syntax is in [syntax.md](syntax.md).
 
-## Proof model
+## Concepts
 
-Every name defined in a proof stands for a fact. A fact has three parts:
+### Facts
+
+Every step of a proof defines a name for a fact. A fact has:
 
 - a formula,
-- a set of dependencies: the names of the assumptions the formula was derived from,
-- a flag that says whether the fact is an assumption.
+- dependencies: the set of assumptions it rests on,
+- a mark that tells whether it is an assumption.
 
-| Step | Resulting fact |
-|------|----------------|
-| `assume h: F` | formula `F`, dependencies `{h}`, assumption |
-| `have h: F := J` | formula `F`, dependencies taken from `J`, not an assumption |
-| axiom used in a justification | the axiom formula, no dependencies, not an assumption |
+| Step | Fact |
+|------|------|
+| `assume h: F` | formula `F`, dependencies `{h}`, marked as an assumption |
+| `have h: F := J` | formula `F`, dependencies of `J`, not marked |
 
-A rule computes the dependencies of its result from the dependencies of its arguments. Most rules take the union. The rules `ImpliesIntro`, `NotIntro`, `OrElim` and `ExistsElim` remove assumptions from the result. This is called discharging an assumption.
+An axiom used as an argument or as a justification is a fact with no dependencies. A name defined in the proof wins over an axiom of the same name.
 
-`have h: F := J` succeeds when the formula derived by `J` equals `F`. `have h: F := x`, where `x` is a name, copies the fact `x` under a new name. The copy is not an assumption, so it cannot be discharged. The original can.
+`have h: F := x`, where `x` is a name, copies the fact `x`. The copy is not marked as an assumption. It cannot be discharged, but `x` still can.
 
-`exact J` succeeds when both conditions hold:
+### Dependencies
 
-1. The formula derived by `J` equals the conclusion of the theorem.
-2. Every name in the dependencies of that fact is an assumption whose formula equals one of the hypotheses of the theorem.
+A rule computes the dependencies of its result from its arguments. Unless a rule says otherwise, they are the union of the dependencies of all fact arguments. `ImpliesIntro`, `NotIntro`, `OrElim` and `ExistsElim` remove an assumption from the set. Removing it is called discharging.
 
-The second condition is what ties a proof to its statement. An assumption that is not a hypothesis has to be discharged before `exact`. Without this condition `assume h: B` followed by `exact h` would prove any `B`.
+### Acceptance
 
-Formulas are compared up to renaming of bound variables.
+`have h: F := J` is accepted when the formula derived by `J` equals `F`.
 
-## Argument kinds
+`exact J` is accepted when:
 
-| Kind | Meaning |
+1. the formula derived by `J` equals the conclusion of the theorem, and
+2. every assumption in the dependencies of the result has a formula that equals one of the hypotheses of the theorem.
+
+The second condition connects the proof to the statement. If it were absent, `assume h: B` followed by `exact h` would prove any `B`.
+
+### Goals
+
+For some rules the arguments do not determine the result. These rules use the declared formula of `have`, or the conclusion in the case of `exact`, as a goal. They check that the goal is reachable and return it: `OrIntroLeft`, `OrIntroRight`, `FalseElim`, `ExistsIntro`, `EqRefl`, `EqSubst`.
+
+### Argument kinds
+
+| Kind | Accepts |
 |------|---------|
-| fact | a name of a fact of the proof or of an axiom. A proof name takes precedence over an axiom name. |
-| assumption | a name introduced by `assume`. Names introduced by `have` are rejected, even when they are copies of assumptions. |
-| term | an identifier or a function application, such as `a` or `f(a, b)` |
-| variable | a plain identifier |
+| fact | name of a step of the proof, or of an axiom |
+| assumption | name of a step made by `assume`. A step made by `have` is rejected, even if it copies an assumption. |
+| term | identifier or function application |
+| variable | identifier |
 
-## Goal-directed rules
+A wrong number of arguments fails the rule.
 
-The result of some rules is not determined by their arguments. For these rules the formula declared in `have` or the conclusion of the theorem in `exact` is the goal. The rule checks that the goal is reachable and returns it.
+## Rule reference
 
-| Rule | What the goal supplies |
-|------|------------------------|
-| `OrIntroLeft`, `OrIntroRight` | the other disjunct |
-| `FalseElim` | the derived formula |
-| `ExistsIntro` | the quantified formula |
-| `EqRefl` | the term |
-| `EqSubst` | the formula after replacement |
+In the entries, `A`, `B`, `C`, `F`, `P`, `Q` stand for arbitrary formulas.
 
-## Summary
+### Conjunction
 
-| Rule | Arguments | Result |
-|------|-----------|--------|
-| `AndIntro` | fact `A`, fact `B` | `A AND B` |
-| `AndElimLeft` | fact `A AND B` | `A` |
-| `AndElimRight` | fact `A AND B` | `B` |
-| `OrIntroLeft` | fact `A` | goal `A OR B` |
-| `OrIntroRight` | fact `B` | goal `A OR B` |
-| `OrElim` | fact `P OR Q`, assumption `P`, fact `C`, assumption `Q`, fact `C` | `C` |
-| `ModusPonens` | fact `A => B`, fact `A` | `B` |
-| `ImpliesIntro` | assumption `A`, fact `B` | `A => B` |
-| `NotIntro` | assumption `A`, fact `FALSE` | `NOT A` |
-| `NotElim` | fact `A`, fact `NOT A` | `FALSE` |
-| `FalseElim` | fact `FALSE` | goal |
-| `IffIntro` | fact `A => B`, fact `B => A` | `A <=> B` |
-| `IffElim` | fact `A <=> B`, fact `A` or `B` | the other side |
-| `ForallIntro` | fact `F`, variable `X` | `forall X: F` |
-| `ForallElim` | fact `forall X: F`, term `t` | `F[X := t]` |
-| `ExistsIntro` | fact `F[X := t]`, term `t` | goal `exists X: F` |
-| `ExistsElim` | fact `exists X: F`, assumption `F[X := w]`, fact `C`, variable `w` | `C` |
-| `EqRefl` | none | goal `t = t` |
-| `EqSym` | fact `s = t` | `t = s` |
-| `EqTrans` | fact `s = t`, fact `t = u` | `s = u` |
-| `EqSubst` | fact `s = t`, fact `F` | goal |
+**AndIntro(a, b)**
+Needs `a: A` and `b: B`. Gives `A AND B`.
 
-A wrong number of arguments is an error: ``rule `AndIntro` failed: expects 2 arguments, got 1``.
+**AndElimLeft(h)**
+Needs `h: A AND B`. Gives `A`.
 
-## Conjunction
+**AndElimRight(h)**
+Needs `h: A AND B`. Gives `B`.
 
-`AndIntro(a, b)` derives `A AND B` from facts `a: A` and `b: B`.
+### Disjunction
 
-`AndElimLeft(h)` and `AndElimRight(h)` derive the left and the right part of a fact `h: A AND B`.
+**OrIntroLeft(a)**
+Needs `a: A`. The goal has to be `A OR B` for some `B`. Gives the goal.
 
-The dependencies of the result are the union of the dependencies of the arguments.
+**OrIntroRight(b)**
+Needs `b: B`. The goal has to be `A OR B` for some `A`. Gives the goal.
 
-## Disjunction
+**OrElim(o, x, cx, y, cy)**
+Proof by cases.
 
-`OrIntroLeft(a)` derives a goal of the form `A OR B` from `a: A`. The left side of the goal has to equal the formula of `a`. `B` is free.
+- `o: P OR Q`
+- `x` is an assumption with formula `P`
+- `cx: C`
+- `y` is an assumption with formula `Q`
+- `cy: C`
 
-`OrIntroRight(b)` derives a goal of the form `A OR B` from `b: B`. The right side of the goal has to equal the formula of `b`.
-
-`OrElim(o, x, cx, y, cy)` is proof by cases. The arguments are:
-
-- `o`: a fact `P OR Q`,
-- `x`: an assumption with formula `P`,
-- `cx`: a fact `C` derived from `x`,
-- `y`: an assumption with formula `Q`,
-- `cy`: a fact `C` derived from `y`.
-
-The formulas of `cx` and `cy` have to be equal. The result is `C`. Its dependencies are the dependencies of `o`, the dependencies of `cx` without `x`, and the dependencies of `cy` without `y`.
+The formulas of `cx` and `cy` have to be equal. Gives `C`. Dependencies: those of `o`, those of `cx` without `x`, those of `cy` without `y`.
 
 ```
 theorem or_to_implication:
@@ -117,11 +100,13 @@ proof
 qed
 ```
 
-## Implication
+### Implication
 
-`ModusPonens(i, a)` derives `B` from `i: A => B` and `a: A`. The two arguments can be given in either order.
+**ModusPonens(i, a)**
+Needs `i: A => B` and `a: A`, in either order. Gives `B`.
 
-`ImpliesIntro(x, y)` derives `A => B`, where `A` is the formula of the assumption `x` and `B` is the formula of the fact `y`. The result depends on the dependencies of `y` without `x`.
+**ImpliesIntro(x, y)**
+`x` is an assumption with formula `A`. `y: B`. Gives `A => B`. Dependencies: those of `y` without `x`. It is not required that `y` depends on `x`.
 
 ```
 theorem const_fn:
@@ -135,15 +120,16 @@ proof
 qed
 ```
 
-`ImpliesIntro` does not require that `y` depends on `x`. If it does not, the implication is derived with a vacuous antecedent, which is valid.
+### Negation and falsity
 
-## Negation and falsity
+**NotElim(a, n)**
+Needs a fact and its negation, in either order. Gives `FALSE`.
 
-`NotElim(a, n)` derives `FALSE` from a fact and its negation. The arguments can be given in either order.
+**NotIntro(x, c)**
+`x` is an assumption with formula `A`. `c: FALSE`. Gives `NOT A`. Dependencies: those of `c` without `x`.
 
-`NotIntro(x, c)` derives `NOT A` from the assumption `x: A` and a fact `c` whose formula is `FALSE`. The result depends on the dependencies of `c` without `x`.
-
-`FalseElim(f)` derives the goal from a fact `f: FALSE`. The goal can be any formula.
+**FalseElim(f)**
+Needs `f: FALSE`. Gives the goal, which can be any formula.
 
 ```
 theorem modus_tollens: A => B, NOT B |- NOT A
@@ -158,32 +144,38 @@ proof
 qed
 ```
 
-The built-in rules contain no classical principle such as double negation elimination or the law of excluded middle. A proof that needs one has to take it as an axiom or as a hypothesis.
+The rules include no classical principle such as double negation elimination or excluded middle. A proof that needs one can take it as an axiom or a hypothesis.
 
-## Equivalence
+### Equivalence
 
-`IffIntro(f, b)` derives `P <=> Q` from `f: P => Q` and `b: Q => P`.
+**IffIntro(f, b)**
+Needs `f: P => Q` and `b: Q => P`. Gives `P <=> Q`.
 
-`IffElim(i, x)` takes `i: P <=> Q`. When `x` equals `P` the result is `Q`. Otherwise, when `x` equals `Q`, the result is `P`.
+**IffElim(i, x)**
+Needs `i: P <=> Q`. If `x` equals `P`, gives `Q`. Otherwise, if `x` equals `Q`, gives `P`.
 
-## Universal quantifier
+### Universal quantifier
 
-`ForallIntro(h, X)` derives `forall X: F` from a fact `h: F`. The argument `X` has to be a plain name. The rule fails when `X` is free in an assumption that `h` depends on, or free in any axiom. See [Variable conditions](#variable-conditions).
+**ForallIntro(h, X)**
+Needs `h: F`. `X` is a variable. Gives `forall X: F`. Fails if `X` is fixed for `h`, see [Fixed names](#fixed-names).
 
-`ForallElim(u, t)` takes `u: forall X: F` and a term `t`. The result is `F` with `t` substituted for `X`. The substitution avoids capture, see [Substitution](#substitution).
+**ForallElim(u, t)**
+Needs `u: forall X: F` and a term `t`. Gives `F` with `t` in place of `X`, see [Substitution](#substitution).
 
-## Existential quantifier
+### Existential quantifier
 
-`ExistsIntro(h, t)` derives a goal of the form `exists X: F` from `h: F[X := t]`. The checker substitutes `t` for `X` in `F` and compares the result with the formula of `h`.
+**ExistsIntro(h, t)**
+Needs `h: F[X := t]` and a term `t`. The goal has to be `exists X: F`. The checker substitutes `t` for `X` in `F` and compares with the formula of `h`. Gives the goal.
 
-`ExistsElim(e, x, c, w)` is existential elimination. The arguments are:
+**ExistsElim(e, x, c, w)**
+Existential elimination.
 
-- `e`: a fact `exists X: F`,
-- `x`: an assumption whose formula equals `F[X := w]`,
-- `c`: a fact `C` derived from `x`,
-- `w`: a plain name, the witness.
+- `e: exists X: F`
+- `x` is an assumption with formula `F[X := w]`
+- `c: C`
+- `w` is a variable, the witness
 
-The result is `C`. Its dependencies are the dependencies of `e` and the dependencies of `c` without `x`. The witness has to be fresh, see [Variable conditions](#variable-conditions).
+Gives `C`. Dependencies: those of `e`, and those of `c` without `x`. The witness has to be fresh, see [Fixed names](#fixed-names).
 
 ```
 theorem exists_left:
@@ -198,15 +190,19 @@ proof
 qed
 ```
 
-## Equality
+### Equality
 
-`EqRefl()` derives a goal of the form `t = t`. The two sides have to be identical. The rule has no arguments and no dependencies.
+**EqRefl()**
+No arguments. The goal has to be `t = t` with identical sides. Gives the goal, with no dependencies.
 
-`EqSym(h)` derives `t = s` from `h: s = t`.
+**EqSym(h)**
+Needs `h: s = t`. Gives `t = s`.
 
-`EqTrans(h1, h2)` derives `s = u` from `h1: s = t` and `h2: t = u`. The middle terms have to be identical.
+**EqTrans(h1, h2)**
+Needs `h1: s = t` and `h2: t = u`. The middle terms have to be identical. Gives `s = u`.
 
-`EqSubst(e, h)` takes `e: s = t` and a fact `h`. The goal has to be the formula of `h` with some free occurrences of `s` replaced by `t`. Occurrences of `s` that are not replaced stay as they are. A replacement under a quantifier fails when the quantified variable is free in `s` or in `t`. Replacement from right to left needs `EqSym` first.
+**EqSubst(e, h)**
+Needs `e: s = t` and a fact `h`. The goal has to be the formula of `h` with some free occurrences of `s` replaced by `t`. Gives the goal. A replacement under a quantifier is rejected when the quantified variable is free in `s` or `t`. To replace in the other direction, apply `EqSym` first.
 
 ```
 theorem eq_substitution:
@@ -219,34 +215,26 @@ proof
 qed
 ```
 
-## Variable conditions
+## Fixed names
 
-A name that occurs free in a hypothesis or in an axiom stands for a fixed object. Generalising over such a name would be unsound, so two rules check that their variable is not fixed.
+A name that occurs free in a hypothesis or in an axiom refers to one definite object. Quantifying over it would prove statements that do not hold, so `ForallIntro` and `ExistsElim` check their variable.
 
-A name is fixed for a fact when it is free in the formula of an assumption that the fact depends on, or free in any axiom of the run. The check covers every axiom, not only the axioms used in the proof.
+A name is fixed for a fact if it is free in the formula of some assumption in the dependencies of the fact, or free in any axiom. All axioms count, not only the ones the proof uses.
 
-`ForallIntro(h, X)` requires that `X` is not fixed for `h`.
-
-`ExistsElim(e, x, c, w)` requires that `w` is not free in the formula of `e`, not free in the formula of `c`, and not fixed for the dependencies of the result.
-
-Failure messages:
-
-```
-rule `ForallIntro` failed: variable `x` occurs free in an undischarged assumption or an axiom
-rule `ExistsElim` failed: witness `c` is not fresh: it occurs in the existential formula, the conclusion, an undischarged assumption or an axiom
-```
+- `ForallIntro(h, X)` requires that `X` is not fixed for `h`.
+- `ExistsElim(e, x, c, w)` requires that `w` is not free in the formula of `e`, not free in the formula of `c`, and not fixed for the dependencies of the result.
 
 ## Substitution
 
-`ForallElim`, `ExistsIntro` and `ExistsElim` substitute a term for a variable. The substitution replaces free occurrences only. A bound occurrence of the same name is left alone.
+`ForallElim`, `ExistsIntro` and `ExistsElim` replace a variable by a term. Only free occurrences are replaced. Occurrences bound by a quantifier inside the formula stay.
 
-When the term contains a name that a quantifier inside the formula binds, the substitution renames the bound variable first. The new name is the old name followed by `_1`, or `_2` and so on, with the first number that does not clash with any name in the formula or in the term.
+If the term contains a name that a quantifier in the formula binds, that quantifier's variable is renamed first. The new name is the old one with the suffix `_1`, or `_2` and so on, using the first suffix that clashes with no name in the formula or in the term.
 
-Substituting `Y` for `X` in `exists Y: R(X, Y)` gives `exists Y_1: R(Y, Y_1)`. This formula equals `exists Z: R(Y, Z)` and differs from `exists Y: R(Y, Y)`.
+Replacing `X` by `Y` in `exists Y: R(X, Y)` gives `exists Y_1: R(Y, Y_1)`. This equals `exists Z: R(Y, Z)` and differs from `exists Y: R(Y, Y)`.
 
 ## Applying theorems
 
-A theorem that was declared earlier can be used as a rule. For a theorem `name: H1, ..., Hn |- C` the justification is `name(a1, ..., an)` with one fact for each hypothesis. A theorem without hypotheses is used as `name()` or as the bare name `name`.
+A theorem declared earlier acts as a rule. For `name: H1, ..., Hn |- C`, write `name(a1, ..., an)` with one fact per hypothesis. A theorem without hypotheses is written `name()` or just `name`.
 
 ```
 theorem swap_twice:
@@ -259,19 +247,13 @@ proof
 qed
 ```
 
-The statement of the theorem is a pattern. Propositional atoms, which are identifiers without arguments, are placeholders. The check finds one replacement of every placeholder by a formula such that:
+The statement of the theorem is a pattern in which propositional letters, meaning identifiers without arguments, are placeholders. The call is accepted when one assignment of formulas to the placeholders exists such that:
 
-- the formula of each argument `ai` equals `Hi` after the replacement,
-- the declared formula equals `C` after the replacement.
+- each argument `ai` equals `Hi` after assignment,
+- the declared formula equals `C` after assignment.
 
-The same placeholder has to be replaced by equal formulas everywhere. In `and_comm: A AND B |- B AND A` the call `and_comm(h)` with `h: P AND Q` replaces `A` by `P` and `B` by `Q`, and the declared formula has to be `Q AND P`.
+A placeholder gets the same formula at all its occurrences. For `and_comm: A AND B |- B AND A` and `h: P AND Q`, the assignment is `A := P`, `B := Q`, and the declared formula has to be `Q AND P`.
 
-Everything else in the pattern has to match exactly: connectives, predicate names, terms, equalities and free names. Bound variables are matched up to renaming. A replacement must not contain a name that is bound by a quantifier around the placeholder in the pattern. Without this restriction `P |- forall X: P` could be applied with `Q(X)` for `P`.
+Everything else in the pattern has to match exactly: connectives, predicates, terms, equalities and free names. Bound variables match up to renaming. A placeholder inside a quantifier cannot receive a formula that contains the quantified variable free. Without that restriction `P |- forall X: P` could be applied with `P := Q(X)`.
 
-The dependencies of the result are the union of the dependencies of the arguments. When the arguments do not fit, the message is:
-
-```
-the arguments and the declared formula are not an instance of theorem `and_comm`: (A AND B) |- (B AND A)
-```
-
-A theorem can be applied only after its declaration. Axioms are not patterns: their formulas are used as they are written.
+The result depends on the union of the dependencies of the arguments. Axioms are not patterns: their formulas are used as written.
