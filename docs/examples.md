@@ -1,8 +1,10 @@
 # Examples
 
-The files in `examples/` are checked by the test suite. Run any of them with `alif verify`. The outputs below are from the CLI.
+The files in `examples/` are run by the test suite. Each can be checked with `alif verify`.
 
-## Reading a proof
+## A first proof
+
+`examples/and_comm.alif`:
 
 ```
 theorem and_comm:
@@ -16,20 +18,22 @@ proof
 qed
 ```
 
-This is `examples/and_comm.alif`. The sequent has one hypothesis, `A AND B`, and the conclusion `B AND A`.
+The sequent has one hypothesis, `A AND B`, and the conclusion `B AND A`. The checker proceeds as follows.
 
-1. `assume h: A AND B` introduces the hypothesis under the name `h`. Dependencies of `h`: `{h}`.
-2. `AndElimRight(h)` derives `B`. The step declares `B`, and the formula matches. Dependencies: `{h}`.
-3. `AndElimLeft(h)` derives `A`.
-4. `AndIntro(b, a)` derives `B AND A`.
-5. `exact result` derives the conclusion. The only dependency is `h`, whose formula is the hypothesis, so the proof is complete.
+| Step | Fact | Depends on |
+|------|------|------------|
+| `assume h` | `A AND B` | `h` |
+| `have b` | `B` | `h` |
+| `have a` | `A` | `h` |
+| `have result` | `B AND A` | `h` |
+| `exact result` | accepted: the formula is the conclusion, and `h` is a hypothesis | |
 
 ```
 $ alif verify examples/and_comm.alif
 ✓ QED
 ```
 
-## Predicates
+## Predicates and quantifiers
 
 `examples/syllogism.alif`:
 
@@ -45,13 +49,44 @@ proof
 qed
 ```
 
-`ForallElim(all, socrates)` substitutes the term `socrates` for `X` in the body of `all`. Predicates take terms as arguments, so the substitution reaches inside `human(X)` and `mortal(X)`.
+`ForallElim(all, socrates)` puts the term `socrates` in place of `X` inside `human(X) => mortal(X)`.
 
-`examples/socrates.alif` is the same statement reduced to `mortal(socrates) |- mortal(socrates)`.
+`examples/quantifiers.alif` has two more proofs. The first generalises a name:
+
+```
+theorem forall_left:
+  forall X: P(X) AND Q(X) |- forall X: P(X)
+proof
+  assume all: forall X: P(X) AND Q(X)
+  have both: P(x) AND Q(x) := ForallElim(all, x)
+  have p: P(x) := AndElimLeft(both)
+  have result: forall X: P(X) := ForallIntro(p, x)
+  exact result
+qed
+```
+
+`x` occurs in no hypothesis, so `ForallIntro(p, x)` is allowed. It produces `forall x: P(x)`, which equals the declared `forall X: P(X)`.
+
+The second uses an existential hypothesis:
+
+```
+theorem exists_left:
+  exists X: P(X) AND Q(X) |- exists X: P(X)
+proof
+  assume ex: exists X: P(X) AND Q(X)
+  assume w: P(c) AND Q(c)
+  have p: P(c) := AndElimLeft(w)
+  have goal: exists X: P(X) := ExistsIntro(p, c)
+  have result: exists X: P(X) := ExistsElim(ex, w, goal, c)
+  exact result
+qed
+```
+
+`w` is the existential body for the fresh name `c`. `ExistsElim` discharges `w`, so `result` depends on `ex` only.
 
 ## Axioms
 
-An axiom can be passed to a rule or used as a justification. It has no dependencies.
+An axiom can be used directly as an argument or as a justification.
 
 ```
 axiom human_socrates: human(socrates)
@@ -66,7 +101,23 @@ proof
 qed
 ```
 
-## Cases and contradiction
+## Discharging assumptions
+
+```
+theorem const_fn:
+  |- A => B => A
+proof
+  assume a: A
+  assume b: B
+  have inner: B => A := ImpliesIntro(b, a)
+  have outer: A => B => A := ImpliesIntro(a, inner)
+  exact outer
+qed
+```
+
+There are no hypotheses. `ImpliesIntro(b, a)` discharges `b`, leaving `inner` dependent on `a`. `ImpliesIntro(a, inner)` discharges `a`. `outer` depends on nothing, and `exact` accepts it.
+
+## Cases
 
 `examples/disjunction.alif`:
 
@@ -85,60 +136,11 @@ proof
 qed
 ```
 
-`x` and `y` are assumptions for the two cases. They are not hypotheses of the theorem. `OrElim` discharges them, so `result` depends on `o` and `na` only. In the first case `NotElim` and `FalseElim` derive `B` from the contradiction. In the second case `y` is already `B`, and `y` is passed as the derived fact.
-
-## Discharging assumptions
-
-```
-theorem const_fn:
-  |- A => B => A
-proof
-  assume a: A
-  assume b: B
-  have inner: B => A := ImpliesIntro(b, a)
-  have outer: A => B => A := ImpliesIntro(a, inner)
-  exact outer
-qed
-```
-
-The theorem has no hypotheses. Both assumptions are discharged by `ImpliesIntro`, so `outer` has no dependencies and `exact` succeeds. `A => B => A` is read as `A => (B => A)`.
-
-## Quantifiers
-
-`examples/quantifiers.alif` contains three proofs.
-
-```
-theorem forall_left:
-  forall X: P(X) AND Q(X) |- forall X: P(X)
-proof
-  assume all: forall X: P(X) AND Q(X)
-  have both: P(x) AND Q(x) := ForallElim(all, x)
-  have p: P(x) := AndElimLeft(both)
-  have result: forall X: P(X) := ForallIntro(p, x)
-  exact result
-qed
-```
-
-`x` is a name that appears in no hypothesis, so `ForallIntro(p, x)` is allowed. The result `forall x: P(x)` equals the declared `forall X: P(X)` because bound names do not matter.
-
-```
-theorem exists_left:
-  exists X: P(X) AND Q(X) |- exists X: P(X)
-proof
-  assume ex: exists X: P(X) AND Q(X)
-  assume w: P(c) AND Q(c)
-  have p: P(c) := AndElimLeft(w)
-  have goal: exists X: P(X) := ExistsIntro(p, c)
-  have result: exists X: P(X) := ExistsElim(ex, w, goal, c)
-  exact result
-qed
-```
-
-`w` is the instance of the existential formula for the fresh name `c`. `ExistsElim` discharges `w`, and the result depends on `ex` only.
+`x` and `y` are the assumptions of the two cases. They are not hypotheses, and `OrElim` discharges both. The first case reaches `B` through a contradiction. In the second case `y` is `B` already and serves as the derived fact.
 
 ## Equality
 
-`examples/equality.alif` proves reflexivity, symmetry, transitivity and substitution:
+`examples/equality.alif` proves reflexivity, symmetry, transitivity and substitution. The last one:
 
 ```
 theorem eq_substitution:
@@ -151,9 +153,9 @@ proof
 qed
 ```
 
-## Theorems as lemmas
+## Using theorems
 
-`examples/lemmas.alif`:
+`examples/lemmas.alif` applies `and_comm` from the standard library twice:
 
 ```
 theorem swap_twice:
@@ -166,7 +168,7 @@ proof
 qed
 ```
 
-`and_comm` comes from the standard library. The first call replaces `A` by `P` and `B` by `Q`. The second call replaces `A` by `Q` and `B` by `P`.
+The first call assigns `A := P` and `B := Q`. The second assigns `A := Q` and `B := P`.
 
 ## Imports
 
@@ -202,7 +204,7 @@ The path is relative to the directory of `import_main.alif`.
 
 ## Common mistakes
 
-Each case below is a complete file named `bad.alif`.
+Each input below is a complete file named `bad.alif`.
 
 ### An assumption that is not a hypothesis
 
@@ -218,9 +220,9 @@ qed
 bad.alif:4:3: proof error in theorem `t`, step 2: the result depends on assumption `h: B`, which is neither discharged nor a hypothesis of the theorem
 ```
 
-The hypothesis is `A`. Introducing `B` as an assumption does not prove `B`.
+The only hypothesis is `A`.
 
-### An assumption that is never discharged
+### An assumption that stays open
 
 ```
 theorem t: |- A => B
@@ -236,9 +238,9 @@ qed
 bad.alif:6:3: proof error in theorem `t`, step 4: the result depends on assumption `b: B`, which is neither discharged nor a hypothesis of the theorem
 ```
 
-`ImpliesIntro` discharges `a` only. The result still depends on `b`.
+`ImpliesIntro` discharged `a` only.
 
-### Generalising over a fixed name
+### Generalising a fixed name
 
 ```
 theorem t: P(x) |- forall x: P(x)
@@ -253,9 +255,9 @@ qed
 bad.alif:4:3: proof error in theorem `t`, step 2: rule `ForallIntro` failed: variable `x` occurs free in an undischarged assumption or an axiom
 ```
 
-The hypothesis talks about one particular `x`, so the statement cannot be generalised.
+The hypothesis speaks about one particular `x`.
 
-### A theorem applied to the wrong formula
+### A theorem used on the wrong formula
 
 ```
 theorem t: X AND Y |- X AND Y
@@ -270,7 +272,7 @@ qed
 bad.alif:4:3: proof error in theorem `t`, step 2: the arguments and the declared formula are not an instance of theorem `and_comm`: (A AND B) |- (B AND A)
 ```
 
-With `h: X AND Y` the theorem yields `Y AND X`.
+For `h: X AND Y` the theorem gives `Y AND X`.
 
 ### Variable capture
 
@@ -287,9 +289,9 @@ qed
 bad.alif:4:3: proof error in theorem `t`, step 2: derived formula `exists Y_1: R(Y, Y_1)` does not match declared formula `exists Y: R(Y, Y)`
 ```
 
-Substituting `Y` into the body renames the bound `Y`. The statement of the theorem is not derivable, and the checker does not derive it.
+Replacing `X` by `Y` renames the bound `Y`, so the result differs from the declared formula. The statement does not follow from the hypothesis.
 
-### A derivation that does not produce the declared formula
+### A derivation that gives another formula
 
 ```
 theorem t: A, B |- A
@@ -305,7 +307,7 @@ qed
 bad.alif:5:3: proof error in theorem `t`, step 3: derived formula `(A AND B)` does not match declared formula `A`
 ```
 
-### A proof without `exact`
+### No `exact`
 
 ```
 theorem t: A |- A
@@ -318,7 +320,7 @@ qed
 bad.alif:3:3: proof error in theorem `t`, step 1: proof must end with `exact`
 ```
 
-### A missing `qed`
+### No `qed`
 
 ```
 theorem t: A |- A
