@@ -1,18 +1,18 @@
 # Standard library
 
-The standard library is a set of theorems in `stdlib/logic.alif`. They are available in every file without an `import`.
+The standard library is the file `stdlib/logic.alif`. Its theorems can be used in every file without an `import`.
 
-## Loading
+## How it is loaded
 
-The file is embedded into the library at build time with `include_str!`. Each call of `verify_source` or `verify_file` parses and checks it before the user input is processed. A failure in the library is reported with the file name `<stdlib>`. The library declares no axioms, so everything in it is proved by the same checker that checks user files.
+The file is compiled into the library with `include_str!`. Each verification run parses and checks it first, with the same code that checks user files, and only then reads the user input. The library contains theorems only, and no axioms. If it fails to check, the diagnostic names the file `<stdlib>`.
 
 ## Theorems
 
-Propositional letters in these statements are placeholders. Any formula can take their place, as described in [inference-rules.md](inference-rules.md#applying-theorems).
+Propositional letters in the statements are placeholders. Any formula can take their place, see [inference-rules.md](inference-rules.md#applying-theorems).
 
-| Name | Statement | Use |
-|------|-----------|-----|
-| `identity` | `\|- A => A` | `identity` or `identity()` |
+| Name | Statement | Call |
+|------|-----------|------|
+| `identity` | `\|- A => A` | `identity` |
 | `and_comm` | `A AND B \|- B AND A` | `and_comm(h)` |
 | `and_assoc` | `(A AND B) AND C \|- A AND (B AND C)` | `and_assoc(h)` |
 | `or_comm` | `A OR B \|- B OR A` | `or_comm(h)` |
@@ -22,7 +22,7 @@ Propositional letters in these statements are placeholders. Any formula can take
 | `contraposition` | `A => B \|- NOT B => NOT A` | `contraposition(i)` |
 | `iff_comm` | `A <=> B \|- B <=> A` | `iff_comm(h)` |
 
-Example:
+Example use:
 
 ```
 theorem dni:
@@ -35,20 +35,20 @@ proof
 qed
 ```
 
-## Redefining names
+## Redeclaring library names
 
-A user file can declare an axiom or a theorem with the name of a library entry. The declaration replaces the library entry for the rest of the run, and a second declaration of the same name is an error. The replacement affects the whole run, including imported files that are processed afterwards.
+A user file may declare an axiom or theorem with the name of a library entry. The declaration replaces the library entry for the rest of the run, including files imported afterwards. Declaring the same name a second time is an error.
 
 ```
 axiom identity: P(a)
 
-theorem uses_shadow:
+theorem uses_new_identity:
   |- P(a)
 proof
   exact identity
 qed
 ```
 
-## Source
+## Reading the source
 
-The library source is ordinary Alif code and serves as a set of proofs to read. Each proof uses only the built-in rules.
+`stdlib/logic.alif` is written in plain Alif and uses only built-in rules. It can be read as a set of short proofs.
