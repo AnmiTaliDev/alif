@@ -5,13 +5,13 @@
 
 ## About
 
-Alif is a proof checker for propositional and first-order logic. It reads `.alif` files that contain axioms and theorems with step-by-step natural deduction proofs, and verifies every step. It is meant for people who write small formal proofs by hand and for programs that need to check such proofs.
+Alif is a checker for natural deduction proofs in propositional and first-order logic. It is for people who write short formal proofs by hand, and for programs that need to validate such proofs.
 
 ## Dependencies
 
-- Rust toolchain (stable) with Cargo.
-- The `logos` crate, fetched by Cargo during the build.
-- A C compiler, only to build the C example in `examples/ffi_demo.c`.
+- Rust (stable) and Cargo.
+- The `logos` crate. Cargo downloads it during the build.
+- A C compiler, needed only for `examples/ffi_demo.c`.
 
 ## Build
 
@@ -19,15 +19,15 @@ Alif is a proof checker for propositional and first-order logic. It reads `.alif
 cargo build --release
 ```
 
-The build produces:
+Outputs in `target/release/`:
 
-| Artifact | Path |
-|----------|------|
-| CLI | `target/release/alif` |
-| Shared library | `target/release/libalif.so` (`.dylib` on macOS, `.dll` on Windows) |
-| Rust library | `target/release/libalif.rlib` |
+| File | Content |
+|------|---------|
+| `alif` | command line tool |
+| `libalif.so` | shared library (`libalif.dylib` on macOS, `alif.dll` on Windows) |
+| `libalif.rlib` | Rust library |
 
-Install the CLI into `~/.cargo/bin`:
+Install the command line tool to `~/.cargo/bin`:
 
 ```sh
 cargo install --path .
@@ -42,7 +42,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## Usage
 
-Write a proof in `hello.alif`:
+Save a proof as `hello.alif`:
 
 ```
 theorem hello: A |- A
@@ -52,23 +52,29 @@ proof
 qed
 ```
 
-Verify it:
+Check it:
 
 ```sh
 alif verify hello.alif
 ```
 
-On success the CLI prints `✓ QED` and exits with status 0. On failure it prints the location and the reason to standard error, in the form:
+The tool prints `✓ QED` and exits with status 0. If a proof is wrong, it writes a diagnostic to standard error and exits with a non-zero status:
 
 ```
 <file>:<line>:<column>: proof error in theorem `<name>`, step <n>: <reason>
 ```
 
-Exit status is 0 when every file verified, 1 for a proof error, and 2 for a syntax, load or usage error. The full command reference is in [docs/cli.md](docs/cli.md).
+| Exit status | Meaning |
+|-------------|---------|
+| 0 | all files verified |
+| 1 | proof error |
+| 2 | syntax, load or usage error |
+
+All options are described in [docs/cli.md](docs/cli.md).
 
 ## Language
 
-A file is a sequence of `axiom`, `theorem` and `import` items. A theorem states a sequent, `hypotheses |- conclusion`, and gives a proof as a list of steps:
+A file holds `axiom`, `theorem` and `import` items. A theorem states a sequent, written `hypotheses |- conclusion`, followed by a proof:
 
 ```
 theorem syllogism:
@@ -82,17 +88,19 @@ proof
 qed
 ```
 
-- `assume name: F` introduces a formula as an assumption.
-- `have name: F := J` derives `F` by a rule, a theorem, an axiom or an earlier name.
-- `exact J` ends the proof and must derive the conclusion.
+A proof is a list of steps:
 
-Every derived formula records the assumptions it depends on. `exact` succeeds only when each remaining assumption is one of the theorem's hypotheses. Rules such as `ImpliesIntro` and `NotIntro` remove an assumption from that record.
+- `assume name: F` adds the formula `F` as an assumption.
+- `have name: F := J` derives `F` with the justification `J` and stores it under `name`.
+- `exact J` derives the conclusion and ends the proof.
 
-Alif provides 21 inference rules for conjunction, disjunction, implication, negation, equivalence, `FALSE`, quantifiers and equality. A theorem that was proved earlier in the same file, in an imported file or in the standard library can be applied to later steps, with propositional variables replaced by formulas.
+A justification is a built-in rule, a theorem, an axiom or the name of an earlier step. The checker tracks which assumptions each formula depends on. A proof is accepted only if, at `exact`, the conclusion depends on nothing except the hypotheses of the theorem.
 
-## Library and C API
+There are 21 built-in rules, covering the connectives, `FALSE`, the quantifiers and equality. A proved theorem can be applied in later proofs, with formulas substituted for its propositional letters. The reference is [docs/inference-rules.md](docs/inference-rules.md).
 
-The crate builds as `rlib` and `cdylib`. The Rust entry points are `alif::verify_source` and `alif::verify_file`. The C entry points are declared in `include/alif.h`:
+## Library and C interface
+
+The crate is built as `rlib` and `cdylib`. Rust code calls `alif::verify_source` or `alif::verify_file`. C code uses the functions declared in `include/alif.h`:
 
 ```c
 int alif_verify(const char *source);
@@ -100,36 +108,38 @@ int alif_verify_file(const char *path);
 const char *alif_last_error(void);
 ```
 
-See [docs/api.md](docs/api.md) and [docs/ffi.md](docs/ffi.md).
+Details are in [docs/api.md](docs/api.md) and [docs/ffi.md](docs/ffi.md).
 
 ## Platform support
 
 | Platform | Status |
 |----------|--------|
-| Linux, FreeBSD, OpenBSD, NetBSD, Illumos | Supported |
-| macOS | Builds. A warning is printed to standard error. |
-| Windows | Builds. A warning is printed to standard error. |
+| Linux, FreeBSD, OpenBSD, NetBSD, Illumos | supported |
+| macOS | builds, prints a warning to standard error |
+| Windows | builds, prints a warning to standard error |
 
 ## Acknowledgments
 
-- The [`logos`](https://crates.io/crates/logos) crate, used for lexing.
-- Gerhard Gentzen, who introduced natural deduction, on which the rule set is based.
+- [`logos`](https://crates.io/crates/logos), the lexer generator used by the tokenizer.
+- Gerhard Gentzen, who introduced natural deduction.
 
 ## Documentation
 
-- [docs/syntax.md](docs/syntax.md): lexical rules, grammar and name scoping.
-- [docs/inference-rules.md](docs/inference-rules.md): proof model, dependencies and all 21 rules.
-- [docs/stdlib.md](docs/stdlib.md): standard library theorems.
-- [docs/cli.md](docs/cli.md): command line interface.
-- [docs/api.md](docs/api.md): Rust API.
-- [docs/ffi.md](docs/ffi.md): C API.
-- [docs/errors.md](docs/errors.md): error kinds, formats and messages.
-- [docs/examples.md](docs/examples.md): annotated examples and common mistakes.
-- [docs/architecture.md](docs/architecture.md): modules and design.
-- [CONTRIBUTING.md](CONTRIBUTING.md): development workflow.
+| Document | Content |
+|----------|---------|
+| [docs/syntax.md](docs/syntax.md) | file format, formulas, declarations, scoping |
+| [docs/inference-rules.md](docs/inference-rules.md) | proof model and the 21 rules |
+| [docs/stdlib.md](docs/stdlib.md) | standard library |
+| [docs/cli.md](docs/cli.md) | command line tool |
+| [docs/api.md](docs/api.md) | Rust interface |
+| [docs/ffi.md](docs/ffi.md) | C interface |
+| [docs/errors.md](docs/errors.md) | diagnostics and their causes |
+| [docs/examples.md](docs/examples.md) | worked examples and common mistakes |
+| [docs/architecture.md](docs/architecture.md) | internals |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | development workflow |
 
 ## License
 
 Copyright 2026 AnmiTaliDev <anmitalidev@nuros.org>
 
-Alif is released under the GNU General Public License, version 3 only (GPL-3.0-only). The full text is in [LICENSE](LICENSE).
+Alif is licensed under the GNU General Public License, version 3 only (GPL-3.0-only). See [LICENSE](LICENSE).
