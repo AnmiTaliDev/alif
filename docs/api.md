@@ -1,56 +1,37 @@
-# Rust API
+# Rust interface
 
-The crate `alif` is a library with the name `alif`. Add it as a path or git dependency:
+The library crate is named `alif`.
 
 ```toml
 [dependencies]
 alif = { path = "path/to/alif" }
 ```
 
-## Entry points
-
-### `verify_source`
+## Verifying
 
 ```rust
 pub fn verify_source(source: &str) -> Result<(), AlifError>
-```
-
-Parses `source`, loads the standard library and checks every theorem in order. Returns `Ok(())` when all items succeed, and the first error otherwise. `import` items are rejected with a load error, because a string has no directory.
-
-```rust
-use alif::verify_source;
-
-let source = "theorem id: A |- A\nproof\n  assume h: A\n  exact h\nqed\n";
-match verify_source(source) {
-    Ok(()) => println!("verified"),
-    Err(e) => eprintln!("{}", e),
-}
-```
-
-### `verify_file`
-
-```rust
 pub fn verify_file(path: &Path) -> Result<(), AlifError>
 ```
 
-Reads the file at `path` and verifies it. `import` items are resolved relative to the directory of the file that contains them. Each file is loaded once per call. An unreadable file or a failed import is a load error.
+Both load the standard library, process the declarations in order, and return the first error. Each call starts from a fresh context.
+
+- `verify_source` works on a string. An `import` in it is a load error.
+- `verify_file` reads the file and resolves `import` relative to the directory of the file that contains it. Each file is loaded once per call.
 
 ```rust
 use std::path::Path;
-use alif::verify_file;
 
-verify_file(Path::new("examples/and_comm.alif")).unwrap();
+let source = "theorem id: A |- A\nproof\n  assume h: A\n  exact h\nqed\n";
+alif::verify_source(source).unwrap();
+alif::verify_file(Path::new("examples/and_comm.alif")).unwrap();
 ```
-
-Both functions build a fresh context for each call, so calls do not share declarations.
-
-### `platform_warning`
 
 ```rust
 pub fn platform_warning() -> Option<&'static str>
 ```
 
-Returns the warning text for macOS and Windows and `None` elsewhere. The library functions do not print it. The CLI and the C functions do.
+Returns the warning text on macOS and Windows and `None` elsewhere. The library functions above do not print it. The command line tool and the C functions do.
 
 ## Errors
 
@@ -62,33 +43,35 @@ pub enum AlifError {
 }
 ```
 
-`AlifError` and the three inner types implement `Display` and `std::error::Error`. The `Display` output is the message format described in [errors.md](errors.md). `From` conversions exist from each inner type to `AlifError`.
+All four types implement `Debug`, `Display` and `std::error::Error`, and the inner types convert into `AlifError` with `From`. `Display` produces the diagnostic text from [errors.md](errors.md).
 
 | Type | Fields |
 |------|--------|
 | `ParseError` | `message: String`, `offset: Option<usize>`, `location: Option<Location>` |
-| `CheckError` | `theorem: String`, `step_index: usize` (zero based), `offset: usize`, `message: String`, `location: Option<Location>` |
+| `CheckError` | `theorem: String`, `step_index: usize`, `offset: usize`, `message: String`, `location: Option<Location>` |
 | `LoadError` | `message: String`, `location: Option<Location>` |
-| `Location` | `file: Option<String>`, `line: usize`, `column: usize` (both one based) |
+| `Location` | `file: Option<String>`, `line: usize`, `column: usize` |
 
-`offset` is a byte offset into the source text. The verification functions fill in `location`. Functions that work on a single piece of text, such as `parse_source` and `check`, leave it as `None`. `ParseError::locate`, `CheckError::locate` and `Location::new` compute a location from a source string and a file label.
+`step_index` counts from 0. `line` and `column` count from 1. `offset` is a byte offset into the source text.
+
+`verify_source` and `verify_file` fill in `location`. Lower-level functions leave it `None`. `Location::new(file, source, offset)`, `ParseError::locate(file, source)` and `CheckError::locate(file, source)` compute it from a source text.
 
 ```rust
-use alif::{verify_source, AlifError};
+use alif::AlifError;
 
 let source = "theorem t: A |- B\nproof\n  assume h: A\n  exact h\nqed";
-match verify_source(source) {
+match alif::verify_source(source) {
     Ok(()) => {}
     Err(AlifError::Parse(e)) => println!("syntax: {}", e.message),
     Err(AlifError::Check(e)) => {
         let at = e.location.as_ref().unwrap();
-        println!("theorem {} step {} at {}:{}", e.theorem, e.step_index + 1, at.line, at.column);
+        println!("{} step {} at {}:{}", e.theorem, e.step_index + 1, at.line, at.column);
     }
     Err(AlifError::Load(e)) => println!("load: {}", e.message),
 }
 ```
 
-The code above prints `theorem t step 2 at 4:3`.
+This prints `t step 2 at 4:3`.
 
 ## Syntax tree
 
@@ -137,20 +120,18 @@ pub enum Item {
 }
 ```
 
-A propositional atom is `Formula::Atom(name, vec![])`. A predicate application has a non-empty argument list. `offset` fields are byte offsets of the first token of the construct. `ProofStep::offset()` returns the offset of any step.
+A propositional letter is `Atom(name, vec![])`. `offset` is the byte offset of the first token of the construct, and `ProofStep::offset()` returns it for any step.
 
-All of these types implement `Debug`, `Clone` and `PartialEq`. `Term` and `Formula` implement `Display` with parenthesised binary connectives, for example `(A AND B)`. `Display` is meant for messages. Quantifiers are printed without surrounding parentheses, so the text is not guaranteed to parse back to the same tree.
+The types derive `Debug`, `Clone` and `PartialEq`. `Term` and `Formula` also implement `Display`, which is meant for messages: binary connectives are parenthesised, quantifiers are not, so the text may not parse back to the same tree. `==` on formulas is structural. Use `alif::formula_ops::alpha_eq` to compare up to renaming of bound variables.
 
-`PartialEq` on `Formula` is structural. Use `alif::formula_ops::alpha_eq` to compare up to renaming of bound variables.
-
-## Parsing and checking
+## Parsing and checking separately
 
 ```rust
 pub fn parse_source(source: &str) -> Result<Vec<Item>, ParseError>
 pub fn check(theorem: &Theorem, ctx: &Context) -> Result<(), CheckError>
 ```
 
-`parse_source` parses a source string without checking it. `check` checks one theorem against a context.
+`parse_source` only parses. `check` verifies one theorem against a context and does not change it.
 
 ```rust
 pub struct Context {
@@ -164,7 +145,9 @@ pub struct Sequent {
 }
 ```
 
-`Context` implements `Default` and has `contains(&self, name: &str) -> bool`. `check` does not modify the context. To check a file item by item, add each axiom and each checked theorem to the context yourself. `alif::stdlib::load_stdlib() -> Result<Context, AlifError>` returns a context with the standard library.
+`Context` implements `Default` and has `contains(&self, name: &str) -> bool`. `alif::stdlib::load_stdlib()` returns a context that holds the standard library.
+
+A caller that checks declarations one by one has to add each axiom and each accepted theorem to the context:
 
 ```rust
 use alif::{check, parse_source, stdlib::load_stdlib, Item, Sequent};
@@ -190,18 +173,18 @@ for item in parse_source(source)? {
 }
 ```
 
-This loop does not enforce the naming rules of `verify_source`: duplicate names, built-in rule names and imports. Use `verify_source` or `verify_file` when those rules matter.
+This loop does not apply the naming rules (no duplicates, no rule names) and does not resolve imports. `verify_source` and `verify_file` do.
 
-## Lower-level modules
+## Other public modules
 
-These modules are public. Their items can change more often than the entry points above.
+These can change more often than the functions above.
 
-| Module | Contents |
-|--------|----------|
-| `lexer` | `Token`, `Lexeme { token, text, offset }`, `lex(&str) -> Result<Vec<Lexeme>, ParseError>` |
-| `rules` | `Rule` (21 variants, `from_name`, `name`, `all`), `Fact`, `Env`, `apply_rule`, `lookup_fact` |
+| Module | Items |
+|--------|-------|
+| `lexer` | `Token`, `Lexeme { token, text, offset }`, `lex` |
+| `rules` | `Rule` with `from_name`, `name` and `all`; `Fact`; `Env`; `apply_rule`; `lookup_fact` |
 | `formula_ops` | `free_vars`, `term_free_vars`, `substitute`, `alpha_eq`, `matches_all`, `replaces` |
 | `verify` | `verify_source`, `verify_file` |
 | `ffi` | the C functions, see [ffi.md](ffi.md) |
 
-`formula_ops::substitute(formula, var, term)` is capture-avoiding. `alpha_eq(a, b)` compares up to renaming. `matches_all(&[(pattern, target)])` tests whether one replacement of propositional atoms makes every pattern equal to its target. `replaces(source, target, from, to)` tests whether `target` is `source` with some occurrences of `from` replaced by `to`.
+`substitute(formula, var, term)` avoids capture. `matches_all(&[(pattern, target)])` tests whether one assignment to the propositional letters makes each pattern equal to its target. `replaces(source, target, from, to)` tests whether `target` is `source` with some occurrences of `from` replaced by `to`.
