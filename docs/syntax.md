@@ -1,96 +1,45 @@
 # Syntax
 
-This document defines the lexical rules, the grammar and the scoping rules of `.alif` files. The meaning of proof steps and rules is described in [inference-rules.md](inference-rules.md).
+This document defines what a valid `.alif` file looks like. What a proof step means is defined in [inference-rules.md](inference-rules.md).
 
-## Source files
+## Lexical structure
 
-A source file is UTF-8 text. The extension `.alif` is a convention and is not checked. Whitespace separates tokens. Indentation and line breaks have no meaning.
-
-A comment starts with `--` and runs to the end of the line.
+A file is UTF-8 text. Whitespace separates tokens, and line breaks and indentation carry no meaning. A comment starts with `--` and ends at the end of the line.
 
 ```
--- a comment
-axiom a: A  -- another comment
+axiom a: A   -- comment
 ```
 
-Outside comments and string literals only ASCII characters are accepted. Any other character is reported as an unrecognised token.
+Outside comments and string literals, only ASCII characters are allowed.
 
-## Tokens
-
-| Kind | Tokens |
-|------|--------|
-| Keywords | `axiom` `theorem` `import` `proof` `assume` `have` `exact` `qed` `forall` `exists` |
-| Connective keywords | `AND` `OR` `NOT` `FALSE` |
-| Operators | `\|-` `=>` `<=>` `:=` `=` |
+| Token class | Spelling |
+|-------------|----------|
+| Keyword | `axiom` `theorem` `import` `proof` `assume` `have` `exact` `qed` `forall` `exists` |
+| Connective | `AND` `OR` `NOT` `FALSE` |
+| Operator | `\|-` `=>` `<=>` `:=` `=` |
 | Punctuation | `:` `,` `(` `)` |
-| Identifier | an ASCII letter or `_`, followed by ASCII letters, digits or `_` |
-| String | `"` followed by any characters except `"` and a line break, followed by `"` |
+| Identifier | ASCII letter or `_`, then ASCII letters, digits or `_` |
+| String | `"`, any characters except `"` and line breaks, `"` |
 
-Keywords are case sensitive and cannot be used as identifiers. A word that only begins with a keyword, such as `ANDx` or `proofs`, is an identifier.
+The lexer takes the longest match. `proofs` and `ANDx` are identifiers, not keywords followed by a letter. Keywords are case sensitive and cannot be used as names.
 
-## Grammar
+## Terms and formulas
+
+A term is an identifier, or a function symbol applied to one or more terms:
 
 ```
-file          = { item } ;
-item          = axiom | theorem | import ;
-
-axiom         = "axiom" ident ":" formula ;
-import        = "import" string ;
-theorem       = "theorem" ident ":" sequent "proof" { step } "qed" ;
-
-sequent       = [ formula { "," formula } ] "|-" formula
-              | formula ;
-
-step          = assume | have | exact ;
-assume        = "assume" ident ":" formula ;
-have          = "have" ident ":" formula ":=" justification ;
-exact         = "exact" justification ;
-justification = ident [ "(" [ term { "," term } ] ")" ] ;
-
-formula       = iff ;
-iff           = implies { "<=>" implies } ;
-implies       = or [ "=>" implies ] ;
-or            = and { "OR" and } ;
-and           = not { "AND" not } ;
-not           = "NOT" not | atom ;
-atom          = "forall" ident ":" formula
-              | "exists" ident ":" formula
-              | "(" formula ")"
-              | "FALSE"
-              | term [ "=" term ] ;
-
-term          = ident [ "(" term { "," term } ")" ] ;
+socrates
+f(a, g(b))
 ```
 
-A sequent without `|-` consists of a single formula and has no hypotheses. A sequent with `|-` may have an empty hypothesis list.
+A formula is one of:
 
-The parser reads steps until it meets a token that does not start a step, and then requires `qed`.
-
-## Precedence
-
-From the tightest to the loosest binding:
-
-| Level | Construct | Associativity |
-|-------|-----------|---------------|
-| 1 | `=` between two terms | not associative |
-| 2 | `NOT` | prefix |
-| 3 | `AND` | left |
-| 4 | `OR` | left |
-| 5 | `=>` | right |
-| 6 | `<=>` | left |
-
-`A => B => C` is `A => (B => C)`. `A <=> B <=> C` is `(A <=> B) <=> C`.
-
-The body of `forall` and `exists` extends as far to the right as possible. `forall X: P(X) AND Q(X)` quantifies over the whole conjunction. Use parentheses to limit the body: `(forall X: P(X)) AND Q`.
-
-## Formulas
-
-| Form | Meaning |
-|------|---------|
-| `A` | propositional atom: an identifier without arguments |
-| `P(t1, ..., tn)` | predicate atom with one or more terms |
-| `s = t` | equality between two terms |
-| `FALSE` | the false formula |
+| Formula | Reading |
+|---------|---------|
+| `A` | propositional letter, an identifier without arguments |
+| `P(t1, ..., tn)` | predicate applied to one or more terms |
+| `s = t` | equality of two terms |
+| `FALSE` | falsity |
 | `NOT F` | negation |
 | `F AND G` | conjunction |
 | `F OR G` | disjunction |
@@ -98,27 +47,54 @@ The body of `forall` and `exists` extends as far to the right as possible. `fora
 | `F <=> G` | equivalence |
 | `forall X: F` | universal quantification |
 | `exists X: F` | existential quantification |
+| `(F)` | grouping |
 
-A term is an identifier or a function application `f(t1, ..., tn)` with one or more arguments. Empty argument lists are not allowed in formulas and terms.
+Argument lists cannot be empty in formulas and terms.
 
-Variables and constants are not declared. A name in term position is a variable when an enclosing quantifier binds it. Otherwise it is a free name, which the checker treats like a constant. A propositional atom and a term name are unrelated even when they share an identifier: in `forall X: X` the atom `X` is not affected by the quantifier.
+### Precedence
 
-Two formulas are equal when they are equal up to renaming of bound variables. `forall X: P(X)` and `forall Y: P(Y)` are equal. Free names must be identical. Every comparison in the checker uses this equality.
+From tightest to loosest:
 
-## Items
+| Level | Operator | Grouping |
+|-------|----------|----------|
+| 1 | `=` | none |
+| 2 | `NOT` | prefix |
+| 3 | `AND` | left |
+| 4 | `OR` | left |
+| 5 | `=>` | right |
+| 6 | `<=>` | left |
 
-### axiom
+So `A => B => C` means `A => (B => C)`, and `A OR B AND C` means `A OR (B AND C)`.
+
+A quantifier takes everything to its right as its body: `forall X: P(X) AND Q(X)` is `forall X: (P(X) AND Q(X))`. Use parentheses to stop the body early: `(forall X: P(X)) AND Q`.
+
+### Variables and constants
+
+Names are not declared. In a term, a name is a variable when an enclosing quantifier binds it, and otherwise it is free. The checker treats free names like constants. In `human(socrates)` the name `socrates` is free. In `forall X: human(X)` the name `X` is bound.
+
+A propositional letter is not a term. In `forall X: X` the letter `X` is unrelated to the bound variable.
+
+### Equality of formulas
+
+Formulas are compared up to renaming of bound variables. `forall X: P(X)` equals `forall Y: P(Y)`. Free names have to be identical. All comparisons in the checker use this notion.
+
+## Declarations
+
+A file is a sequence of declarations.
+
+### `axiom`
 
 ```
-axiom human_socrates: human(socrates)
+axiom all_mortal: forall X: human(X) => mortal(X)
 ```
 
-Declares a formula that holds without proof. Later proofs refer to it by name. Free names that occur in an axiom are fixed and cannot be generalised with `ForallIntro` or used as the witness of `ExistsElim`.
+Adds a formula that needs no proof. A proof refers to it by name. Free names inside an axiom count as fixed, see [inference-rules.md](inference-rules.md#fixed-names).
 
-### theorem
+### `theorem`
 
 ```
-theorem and_comm: A AND B |- B AND A
+theorem and_comm:
+  A AND B |- B AND A
 proof
   assume h: A AND B
   have a: A := AndElimLeft(h)
@@ -128,48 +104,94 @@ proof
 qed
 ```
 
-Declares a sequent and proves it. After the proof is checked, the theorem can be applied in later items. Applying a theorem is described in [inference-rules.md](inference-rules.md#applying-theorems).
+A theorem has a name, a sequent and a proof. The sequent is a list of hypotheses separated by commas, then `|-`, then the conclusion. The hypothesis list may be empty, and `|-` may be omitted when it is:
 
-### import
+```
+theorem t1: |- A => A
+proof
+  exact identity
+qed
+
+theorem t2: A => A
+proof
+  exact identity
+qed
+```
+
+Once its proof is accepted, the theorem can be applied in later proofs, see [inference-rules.md](inference-rules.md#applying-theorems).
+
+### `import`
 
 ```
 import "lib/common.alif"
 ```
 
-Loads another file and checks it in place. The path is relative to the directory of the importing file. Rules:
+Loads another file in place. The path is taken relative to the directory of the file that contains the `import`.
 
-- Each file is loaded once. A second import of the same file has no effect.
-- An import cycle is an error.
-- The items of the imported file become available to the items that follow the import.
-- `import` is not available when the source is given as a string or read from standard input, because there is no directory to resolve the path against.
+- A file that was already loaded is not loaded again.
+- A cycle of imports is an error.
+- Declarations of the imported file are visible below the `import`.
+- `import` is an error when the text has no directory, which is the case for source passed as a string and for standard input.
 
-## Proof steps
+## Proofs
 
-| Step | Effect |
-|------|--------|
-| `assume h: F` | adds `F` under the name `h`, as an assumption |
-| `have h: F := J` | derives `F` by justification `J` and adds it under the name `h` |
-| `exact J` | derives the conclusion by `J` and ends the proof |
+A proof lies between `proof` and `qed` and consists of steps:
 
-A proof must contain at least one step, must end with `exact`, and must not contain a step after `exact`. A name can be defined only once in a proof.
+```
+assume name: formula
+have name: formula := justification
+exact justification
+```
 
-## Justifications
+Conditions on the list of steps:
 
-A justification is either a bare name or a name with an argument list.
+- there is at least one step,
+- the last step is `exact`,
+- no other step is `exact`,
+- no name is defined twice.
 
-| Form | Resolution, in this order |
-|------|---------------------------|
-| `name` | a fact of the proof, an axiom, a rule applied to no arguments, a theorem without hypotheses |
-| `name(args)` | a built-in rule, then a theorem |
+A justification has two forms:
 
-Arguments are separated by commas. Depending on the rule, an argument is the name of a fact or a term. Facts are looked up among the names of the proof first and among the axioms second.
+| Form | Meaning |
+|------|---------|
+| `name` | a step of the proof, an axiom, a rule that takes no arguments, or a theorem without hypotheses |
+| `name(arg, ...)` | a rule or a theorem applied to arguments. The list may be empty. |
 
-## Names
+For a bare `name`, a step of the proof is tried first, then an axiom, then a rule or theorem. For `name(...)`, rules are tried before theorems. An argument is either a name of a step or axiom or a term, depending on the rule. A step name shadows an axiom of the same name.
 
-Axioms and theorems share one namespace that spans the standard library, imported files and the current file.
+## Names and scope
 
-- A name can be declared once. A second declaration is a load error.
-- Names from the standard library can be redeclared once. The new declaration replaces the library entry for the rest of the run. See [stdlib.md](stdlib.md).
-- The 21 rule names cannot be used for axioms or theorems.
-- An item can use only items declared before it.
-- A name introduced by `assume` or `have` is visible from the step after its definition to the end of the proof. It takes precedence over an axiom with the same name.
+- Axioms and theorems share a single namespace across the standard library, imported files and the current file.
+- A name can be declared once. A second declaration is an error.
+- Names defined by the standard library may be declared once by the user, which replaces the library entry. See [stdlib.md](stdlib.md#redeclaring-library-names).
+- The 21 rule names are reserved.
+- A declaration can use only declarations above it.
+- A step name is visible from the next step to the end of its proof.
+
+## Grammar
+
+```
+file          = { declaration } ;
+declaration   = axiom | theorem | import ;
+axiom         = "axiom" ident ":" formula ;
+import        = "import" string ;
+theorem       = "theorem" ident ":" sequent "proof" { step } "qed" ;
+sequent       = [ formula { "," formula } ] "|-" formula | formula ;
+step          = "assume" ident ":" formula
+              | "have" ident ":" formula ":=" justification
+              | "exact" justification ;
+justification = ident [ "(" [ term { "," term } ] ")" ] ;
+formula       = implies { "<=>" implies } ;
+implies       = or [ "=>" implies ] ;
+or            = and { "OR" and } ;
+and           = not { "AND" not } ;
+not           = "NOT" not | atom ;
+atom          = "forall" ident ":" formula
+              | "exists" ident ":" formula
+              | "(" formula ")"
+              | "FALSE"
+              | term [ "=" term ] ;
+term          = ident [ "(" term { "," term } ")" ] ;
+```
+
+The parser reads steps until it meets a token that cannot start a step, and then requires `qed`. The conditions on the list of steps are checked later, by the proof checker.
