@@ -1,8 +1,8 @@
-# Command line interface
+# Command line tool
 
-The `alif` executable verifies proof files. It is built from `src/main.rs`. See the [README](../README.md#build) for build and install instructions.
+`alif` verifies proof files. Build and install steps are in the [README](../README.md#build).
 
-## Synopsis
+## Usage
 
 ```
 alif verify <file>...
@@ -11,40 +11,33 @@ alif --help
 alif --version
 ```
 
-## Commands
+`check` is another name for `verify`. At least one file is required. The file name `-` stands for standard input.
 
-| Command | Description |
-|---------|-------------|
-| `verify <file>...` | Verify every theorem in each file. |
-| `check <file>...` | Same as `verify`. |
+| Option | Effect |
+|--------|--------|
+| `-h`, `--help` | prints usage and the exit status table, exits with 0 |
+| `-V`, `--version` | prints `alif` and the version, exits with 0 |
 
-At least one file is required. A file argument of `-` reads the source from standard input.
+Options are recognised only in the first position.
 
-| Option | Description |
-|--------|-------------|
-| `-h`, `--help` | Print the usage text and the exit status table. Exit status 0. |
-| `-V`, `--version` | Print `alif` and the package version. Exit status 0. |
+## Behaviour
 
-Options are recognised only as the first argument.
+Files are processed in the order given. Each file is a separate run: the standard library is loaded again, and declarations of one file do not reach another, except through `import`. A failure in one file does not stop the processing of the rest.
 
-## Processing
+Inside a file, declarations are processed from top to bottom, and the first error ends the file.
 
-Each file is processed on its own. The standard library is loaded for every file, and the declarations of one file are not visible in another, except through `import`. Processing continues with the next file after a failure.
-
-Within a file, items are processed in order. Processing stops at the first error in that file.
-
-Imports are resolved relative to the directory of the file that contains them. Source read from standard input has no directory, so an `import` in it is an error.
+Paths in `import` are relative to the directory of the importing file. Standard input has no directory, so `import` is an error there.
 
 ## Output
 
-On success, one line is written to standard output.
+A verified file produces one line on standard output:
 
-| Number of files | Output |
-|-----------------|--------|
+| Files given | Line |
+|-------------|------|
 | one | `✓ QED` |
-| several | `<path>: ✓ QED` for each file, where `<path>` is the argument as given (`-` for standard input) |
+| several | `<argument>: ✓ QED` |
 
-On failure, one line is written to standard error. The format is described in [errors.md](errors.md). Nothing is written to standard output for a file that failed.
+A failed file produces one diagnostic on standard error and nothing on standard output. Formats and causes are in [errors.md](errors.md).
 
 ```
 $ alif verify examples/and_comm.alif
@@ -54,9 +47,6 @@ $ alif verify examples/and_comm.alif examples/socrates.alif
 examples/and_comm.alif: ✓ QED
 examples/socrates.alif: ✓ QED
 
-$ alif verify bad.alif
-bad.alif:4:3: proof error in theorem `t`, step 2: the result depends on assumption `h: B`, which is neither discharged nor a hypothesis of the theorem
-
 $ printf 'theorem t: A |- A\nproof\n  assume h: A\n  exact h\nqed\n' | alif verify -
 ✓ QED
 ```
@@ -65,14 +55,12 @@ $ printf 'theorem t: A |- A\nproof\n  assume h: A\n  exact h\nqed\n' | alif veri
 
 | Status | Meaning |
 |--------|---------|
-| 0 | Every file was verified. |
-| 1 | At least one proof error was found, and no file failed with status 2. |
-| 2 | A syntax error, a load error or a usage error occurred. |
+| 0 | all files verified |
+| 1 | at least one proof error, and no status 2 |
+| 2 | at least one syntax, load or usage error |
 
-Load errors cover unreadable files, failed imports, import cycles and duplicate names. With several files the exit status is the highest status of any file.
-
-Usage errors are a missing command, an unknown command, and `verify` or `check` without a file. They print the usage text to standard error.
+Load errors are unreadable files, failed imports, import cycles and duplicate names. Usage errors are a missing or unknown command and `verify` without a file; the usage text goes to standard error. With several files the status is the highest one among them.
 
 ## Platform warning
 
-On macOS and Windows a warning line is printed to standard error before any other output. The text is `warning: Alif is running on macOS. ...` or `warning: Alif is untested on Windows. ...`. The warning does not change the exit status.
+On macOS and Windows the tool prints a warning to standard error before anything else. It does not change the exit status.
