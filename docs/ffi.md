@@ -1,6 +1,6 @@
-# C API
+# C interface
 
-The crate builds a shared library, `libalif.so` on Linux and the BSDs, `libalif.dylib` on macOS and `alif.dll` on Windows. It exports three C functions, declared in `include/alif.h`.
+The shared library exports three functions. They are declared in `include/alif.h`.
 
 ```c
 int alif_verify(const char *source);
@@ -8,38 +8,38 @@ int alif_verify_file(const char *path);
 const char *alif_last_error(void);
 ```
 
-## Functions
+The library file is `libalif.so` on Linux and the BSDs, `libalif.dylib` on macOS and `alif.dll` on Windows. The header is usable from C++.
 
-### `alif_verify`
+## alif_verify
 
-Verifies a source text. The argument is a null-terminated UTF-8 string. It behaves like `verify_source`: imports are rejected.
+Verifies source text. The argument is a null-terminated UTF-8 string. Behaves like `verify_source`, so `import` is an error.
 
-### `alif_verify_file`
+## alif_verify_file
 
-Verifies the file at the given path. The argument is a null-terminated UTF-8 string. It behaves like `verify_file`: imports are resolved relative to the directory of the file.
+Verifies a file. The argument is a null-terminated UTF-8 path. Behaves like `verify_file`, so `import` paths are relative to the directory of the file.
 
-### Return values
+## Return value
+
+Both functions return:
 
 | Value | Meaning |
 |-------|---------|
-| 0 | Everything was verified. |
-| 1 | A proof error was found. |
-| 2 | A syntax error, a load error, a null pointer or text that is not valid UTF-8. |
+| 0 | verified |
+| 1 | proof error |
+| 2 | syntax error, load error, null pointer or invalid UTF-8 |
 
-### `alif_last_error`
+## alif_last_error
 
-Returns the message of the last failed call made on the calling thread, as a null-terminated string. Returns `NULL` when the last call on the thread succeeded or when no call has been made.
+Returns the diagnostic of the most recent failed call on the calling thread, or `NULL` if the most recent call succeeded or no call was made.
 
-- The message has the format described in [errors.md](errors.md).
-- The pointer stays valid until the next `alif_verify` or `alif_verify_file` call on the same thread. Copy the string if it has to live longer.
-- The caller must not free or modify the string.
-- Each thread has its own message. The functions can be called from several threads at the same time.
+- The text has the format described in [errors.md](errors.md).
+- The pointer is valid until the next `alif_verify` or `alif_verify_file` call on the same thread. Copy the text to keep it.
+- The caller does not free or modify it.
+- The message is kept per thread, so the functions can be used from several threads at once.
 
-## Preconditions
+A null argument produces status 2 and the message `null pointer argument`. Invalid UTF-8 produces status 2 and the message `argument is not valid UTF-8`.
 
-The pointer arguments must be null or point to a null-terminated string that stays valid for the duration of the call. A null pointer is reported with status 2 and the message `null pointer argument`. Text that is not valid UTF-8 is reported with status 2 and the message `argument is not valid UTF-8`.
-
-On macOS and Windows each call to `alif_verify` or `alif_verify_file` prints the platform warning to standard error.
+On macOS and Windows each call also writes the platform warning to standard error.
 
 ## Example
 
@@ -69,7 +69,7 @@ int main(void)
 }
 ```
 
-Build the library and compile the example on Linux:
+Build and run on Linux:
 
 ```sh
 cargo build --release
@@ -79,7 +79,3 @@ gcc -Iinclude -o ffi_demo examples/ffi_demo.c \
 ```
 
 The program prints `verified`.
-
-## Use from C++
-
-`alif.h` wraps the declarations in `extern "C"` when it is included from C++.
